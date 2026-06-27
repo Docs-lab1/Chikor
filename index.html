@@ -244,7 +244,7 @@
 </div>
 
 <script>
-    // ============ SUPABASE CONFIGURATION ============
+    // ============ SUPABASE CONFIGURATION - YOUR KEYS ADDED ============
     const SUPABASE_URL = 'https://auzuhfvehsptzculecvg.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1enVoZnZlaHNwdHpjdWxlY3ZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NTgxOTEsImV4cCI6MjA5ODEzNDE5MX0.BoAmGoaVGhXdaeYBfZvKsM8rC2UB7BNgCv4h7YQAr9s';
     
@@ -276,22 +276,23 @@
         { id: 9, name: "Coca Cola", description: "Chilled soft drink", price: 12, image: "https://i.imgur.com/1XqHq0M.jpg" }
     ];
 
-    // ============ LOAD MENU ============
+    // ============ LOAD MENU (IMMEDIATE FALLBACK) ============
     async function loadMenu() {
+        // FIRST: Set menu to hardcoded data immediately
+        menu = HARDCODED_MENU.map(item => ({ ...item }));
+        renderMenu(); // Show menu right away!
+        document.getElementById('menuItemsCount').innerHTML = menu.length;
+        
+        // THEN: Try to load from Supabase (optional)
         try {
-            // Try to load from Supabase
             const { data, error } = await supabase
                 .from('foods')
                 .select('*')
                 .eq('is_available', true)
                 .limit(20);
             
-            if (error || !data || data.length === 0) {
-                // If Supabase fails, use hardcoded menu
-                console.log('Using hardcoded menu (Supabase empty or error)');
-                menu = HARDCODED_MENU.map(item => ({ ...item }));
-            } else {
-                // Convert Supabase data to menu format
+            if (!error && data && data.length > 0) {
+                // If Supabase has data, use it instead
                 menu = data.map((item, index) => ({
                     id: index + 1,
                     uuid: item.id,
@@ -300,21 +301,14 @@
                     price: parseFloat(item.price),
                     image: item.image_url || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)
                 }));
-                // If no data from Supabase, use hardcoded
-                if (menu.length === 0) {
-                    menu = HARDCODED_MENU.map(item => ({ ...item }));
-                }
+                renderMenu(); // Re-render with Supabase data
+                document.getElementById('menuItemsCount').innerHTML = menu.length;
             }
         } catch (e) {
-            console.error('Error loading menu:', e);
-            // ALWAYS fall back to hardcoded menu
-            menu = HARDCODED_MENU.map(item => ({ ...item }));
+            console.log('Supabase not available, using hardcoded menu');
         }
         
-        // Render the menu
-        renderMenu();
         if (currentAdmin) renderAdminMenu();
-        document.getElementById('menuItemsCount').innerHTML = menu.length;
     }
 
     // ============ RENDER FUNCTIONS ============
@@ -382,18 +376,13 @@
         });
     }
 
-    // ============ ADD TO CART (FIXED) ============
+    // ============ ADD TO CART ============
     function addToCart(id) {
-        console.log('Adding item with ID:', id);
-        console.log('Current menu:', menu);
-        
         const item = menu.find(i => i.id === id);
         if (!item) {
-            console.error('Item not found with ID:', id);
             showToast('❌ Item not found');
             return;
         }
-        
         const existing = cart.find(i => i.id === id);
         if (existing) {
             existing.quantity++;
@@ -439,20 +428,76 @@
         }
     }
 
-    // ============ ADMIN FUNCTIONS ============
-    
-    function loginAdmin() {
-        const password = document.getElementById('adminPassword').value;
-        if (password === ADMIN_PASSWORD) {
-            currentAdmin = true;
-            document.getElementById('adminLogin').style.display = 'none';
-            document.getElementById('adminDashboard').style.display = 'block';
-            loadDeliveryGirls();
-            loadAllOrdersAdmin();
-            renderAdminMenu();
-            showToast('✅ Admin logged in!');
-        } else {
-            showToast('❌ Wrong password');
+    // ============ PLACE ORDER ============
+    async function placeOrder() {
+        if (cart.length === 0) {
+            showToast('❌ Cart is empty');
+            return;
+        }
+        const phone = document.getElementById('phone').value;
+        const address = document.getElementById('address').value;
+        if (!phone || phone.length < 9) {
+            showToast('❌ Enter valid phone number');
+            return;
+        }
+        if (!address) {
+            showToast('❌ Enter address or use GPS');
+            return;
+        }
+        
+        const payment = document.querySelector('input[name="payment"]:checked').value;
+        const orderData = {
+            customer_name: phone,
+            phone: phone,
+            address: address,
+            landmark: document.getElementById('landmark').value,
+            items: JSON.parse(JSON.stringify(cart)),
+            paymentMethod: payment,
+            customerLocation: currentCustomerLocation
+        };
+        
+        try {
+            const subtotal = orderData.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+            const total = subtotal + 10;
+            
+            const { data, error } = await supabase
+                .from('orders')
+                .insert([{
+                    customer_name: orderData.customer_name,
+                    customer_phone: orderData.phone,
+                    delivery_address: orderData.address,
+                    landmark: orderData.landmark || '',
+                    items: orderData.items,
+                    subtotal: subtotal,
+                    delivery_fee: 10,
+                    total: total,
+                    payment_method: orderData.paymentMethod,
+                    status: 'pending',
+                    customer_location_lat: orderData.customerLocation?.lat || null,
+                    customer_location_lng: orderData.customerLocation?.lng || null
+                }])
+                .select();
+            
+            if (error) {
+                showToast('❌ Failed to place order');
+                return;
+            }
+            
+            showToast('✅ Order placed!');
+            cart = [];
+            renderCart();
+            document.getElementById('phone').value = '';
+            document.getElementById('address').value = '';
+            navigateTo('track');
+            
+            document.getElementById('trackingStatus').innerHTML = `
+                <div class="order-card">
+                    <h4>✅ Order Confirmed!</h4>
+                    <p>Waiting for a delivery girl...</p>
+                </div>
+            `;
+        } catch (e) {
+            showToast('❌ Error placing order');
         }
     }
 
@@ -542,256 +587,203 @@
         }
     }
 
+    async function loginDeliveryGirl() {
+        const name = document.getElementById('deliveryName').value;
+        const pin = document.getElementById('deliveryPin').value;
+        const girl = await verifyDeliveryGirlSupabase(name, pin);
+        if (girl) {
+            currentDeliveryGirl = { name: girl.name, location: null, id: girl.id };
+            document.getElementById('deliveryLogin').style.display = 'none';
+            document.getElementById('deliveryDashboard').style.display = 'block';
+            document.getElementById('deliveryGirlName').innerText = girl.name;
+            initDeliveryMap();
+            updateDeliveryLocation();
+            loadAvailableOrders();
+            loadMyDeliveries();
+            setInterval(() => {
+                if (currentDeliveryGirl) {
+                    loadAvailableOrders();
+                    loadMyDeliveries();
+                }
+            }, 10000);
+            showToast(`✅ Welcome ${girl.name}!`);
+        } else {
+            showToast('❌ Invalid credentials. Try Name: Laura, PIN: 1234');
+        }
+    }
+
     // ============ ORDER FUNCTIONS ============
     
-    async function saveOrder(orderData) {
-        try {
-            const subtotal = orderData.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
-            const total = subtotal + 10; // + delivery fee
-            
-            const { data, error } = await supabase
-                .from('orders')
-                .insert([{
-                    customer_name: orderData.customer_name || orderData.phone,
-                    customer_phone: orderData.phone,
-                    delivery_address: orderData.address,
-                    landmark: orderData.landmark || '',
-                    items: orderData.items,
-                    subtotal: subtotal,
-                    delivery_fee: 10,
-                    total: total,
-                    payment_method: orderData.paymentMethod,
-                    status: 'pending',
-                    customer_location_lat: orderData.customerLocation?.lat || null,
-                    customer_location_lng: orderData.customerLocation?.lng || null
-                }])
-                .select();
-            
-            if (error) {
-                console.error('Error saving order:', error);
-                showToast('❌ Failed to place order');
-                return null;
-            }
-            return data[0];
-        } catch (e) {
-            console.error('Error:', e);
-            showToast('❌ Error placing order');
-            return null;
-        }
-    }
-
-    async function getAllOrders() {
-        try {
-            const { data, error } = await supabase
-                .from('orders')
-                .select('*')
-                .order('created_at', { ascending: false });
-            return error ? [] : data;
-        } catch (e) {
-            return [];
-        }
-    }
-
-    async function getCustomerOrders(phone) {
-        try {
-            const { data, error } = await supabase
-                .from('orders')
-                .select('*')
-                .eq('customer_phone', phone)
-                .order('created_at', { ascending: false });
-            return error ? [] : data;
-        } catch (e) {
-            return [];
-        }
-    }
-
-    async function updateOrderStatus(orderId, status, deliveryGirlName = null, deliveryGirlId = null) {
-        try {
-            const updateData = { status: status, updated_at: new Date() };
-            if (deliveryGirlName) updateData.delivery_girl_name = deliveryGirlName;
-            if (deliveryGirlId) updateData.delivery_girl_id = deliveryGirlId;
-            
-            const { error } = await supabase
-                .from('orders')
-                .update(updateData)
-                .eq('id', orderId);
-            
-            return !error;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    async function getAvailableOrders() {
+    async function loadAvailableOrders() {
         try {
             const { data, error } = await supabase
                 .from('orders')
                 .select('*')
                 .eq('status', 'pending')
                 .order('created_at', { ascending: true });
-            return error ? [] : data;
-        } catch (e) {
-            return [];
-        }
-    }
-
-    async function getDeliveryGirlOrders(deliveryGirlName) {
-        try {
-            const { data, error } = await supabase
-                .from('orders')
-                .select('*')
-                .eq('delivery_girl_name', deliveryGirlName)
-                .in('status', ['accepted', 'delivering'])
-                .order('created_at', { ascending: false });
-            return error ? [] : data;
-        } catch (e) {
-            return [];
-        }
-    }
-
-    // ============ LOAD ORDERS ============
-    async function loadAvailableOrders() {
-        const orders = await getAvailableOrders();
-        const container = document.getElementById('availableOrdersList');
-        if (container && currentDeliveryGirl) {
-            if (orders.length === 0) {
-                container.innerHTML = '<p style="color:#999; text-align:center">No pending orders</p>';
-            } else {
-                container.innerHTML = orders.map(order => `
-                    <div class="order-card">
-                        <div><strong>Order ${order.order_number || order.id}</strong></div>
-                        <div>📍 ${(order.delivery_address || 'N/A').substring(0, 40)}...</div>
-                        <div>📞 ${order.customer_phone}</div>
-                        <div>💰 ZMW ${order.total}</div>
-                        <button class="btn-primary" onclick="acceptOrder('${order.id}')">✓ Accept Delivery</button>
-                    </div>
-                `).join('');
+            
+            const orders = error ? [] : data;
+            const container = document.getElementById('availableOrdersList');
+            if (container && currentDeliveryGirl) {
+                if (orders.length === 0) {
+                    container.innerHTML = '<p style="color:#999; text-align:center">No pending orders</p>';
+                } else {
+                    container.innerHTML = orders.map(order => `
+                        <div class="order-card">
+                            <div><strong>Order ${order.order_number || order.id}</strong></div>
+                            <div>📍 ${(order.delivery_address || 'N/A').substring(0, 40)}...</div>
+                            <div>📞 ${order.customer_phone}</div>
+                            <div>💰 ZMW ${order.total}</div>
+                            <button class="btn-primary" onclick="acceptOrder('${order.id}')">✓ Accept Delivery</button>
+                        </div>
+                    `).join('');
+                }
             }
+        } catch (e) {
+            console.log('Error loading available orders:', e);
         }
     }
 
     async function loadMyDeliveries() {
         if (!currentDeliveryGirl) return;
-        const orders = await getDeliveryGirlOrders(currentDeliveryGirl.name);
-        const container = document.getElementById('myDeliveriesList');
-        if (container) {
-            if (orders.length === 0) {
-                container.innerHTML = '<p style="color:#999; text-align:center">No active deliveries</p>';
-            } else {
-                container.innerHTML = orders.map(order => `
-                    <div class="order-card">
-                        <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
-                        <div>📍 ${(order.delivery_address || 'N/A').substring(0, 40)}</div>
-                        <div>📞 ${order.customer_phone}</div>
-                        <div>💰 ZMW ${order.total}</div>
-                        ${order.status === 'accepted' ? 
-                            `<button class="btn-primary" onclick="startDelivery('${order.id}')">🚚 Start Delivery</button>` : 
-                            order.status === 'delivering' ?
-                            `<button class="btn-primary" onclick="completeDelivery('${order.id}')">✅ Mark Delivered</button>` : ''}
-                    </div>
-                `).join('');
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('delivery_girl_name', currentDeliveryGirl.name)
+                .in('status', ['accepted', 'delivering'])
+                .order('created_at', { ascending: false });
+            
+            const orders = error ? [] : data;
+            const container = document.getElementById('myDeliveriesList');
+            if (container) {
+                if (orders.length === 0) {
+                    container.innerHTML = '<p style="color:#999; text-align:center">No active deliveries</p>';
+                } else {
+                    container.innerHTML = orders.map(order => `
+                        <div class="order-card">
+                            <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                            <div>📍 ${(order.delivery_address || 'N/A').substring(0, 40)}</div>
+                            <div>📞 ${order.customer_phone}</div>
+                            <div>💰 ZMW ${order.total}</div>
+                            ${order.status === 'accepted' ? 
+                                `<button class="btn-primary" onclick="startDelivery('${order.id}')">🚚 Start Delivery</button>` : 
+                                order.status === 'delivering' ?
+                                `<button class="btn-primary" onclick="completeDelivery('${order.id}')">✅ Mark Delivered</button>` : ''}
+                        </div>
+                    `).join('');
+                }
             }
+        } catch (e) {
+            console.log('Error loading my deliveries:', e);
         }
     }
 
     async function acceptOrder(orderId) {
-        const success = await updateOrderStatus(orderId, 'accepted', currentDeliveryGirl.name, currentDeliveryGirl.id);
-        if (success) {
-            showToast('✅ Order accepted!');
-            loadAvailableOrders();
-            loadMyDeliveries();
+        try {
+            const { error } = await supabase
+                .from('orders')
+                .update({ 
+                    status: 'accepted', 
+                    delivery_girl_name: currentDeliveryGirl.name,
+                    delivery_girl_id: currentDeliveryGirl.id,
+                    updated_at: new Date()
+                })
+                .eq('id', orderId);
+            
+            if (!error) {
+                showToast('✅ Order accepted!');
+                loadAvailableOrders();
+                loadMyDeliveries();
+            }
+        } catch (e) {
+            showToast('❌ Error accepting order');
         }
     }
 
     async function startDelivery(orderId) {
-        const success = await updateOrderStatus(orderId, 'delivering', currentDeliveryGirl.name, currentDeliveryGirl.id);
-        if (success) {
-            showToast('🚚 Delivery started!');
-            loadMyDeliveries();
+        try {
+            const { error } = await supabase
+                .from('orders')
+                .update({ status: 'delivering', updated_at: new Date() })
+                .eq('id', orderId);
+            
+            if (!error) {
+                showToast('🚚 Delivery started!');
+                loadMyDeliveries();
+            }
+        } catch (e) {
+            showToast('❌ Error starting delivery');
         }
     }
 
     async function completeDelivery(orderId) {
-        const success = await updateOrderStatus(orderId, 'delivered', currentDeliveryGirl.name, currentDeliveryGirl.id);
-        if (success) {
-            showToast('🎉 Order delivered!');
-            loadAvailableOrders();
-            loadMyDeliveries();
-            if (currentAdmin) loadAllOrdersAdmin();
-        }
-    }
-
-    // ============ PLACE ORDER ============
-    async function placeOrder() {
-        if (cart.length === 0) {
-            showToast('❌ Cart is empty');
-            return;
-        }
-        const phone = document.getElementById('phone').value;
-        const address = document.getElementById('address').value;
-        if (!phone || phone.length < 9) {
-            showToast('❌ Enter valid phone number');
-            return;
-        }
-        if (!address) {
-            showToast('❌ Enter address or use GPS');
-            return;
-        }
-        
-        const payment = document.querySelector('input[name="payment"]:checked').value;
-        const orderData = {
-            customer_name: phone,
-            phone: phone,
-            address: address,
-            landmark: document.getElementById('landmark').value,
-            items: JSON.parse(JSON.stringify(cart)),
-            paymentMethod: payment,
-            customerLocation: currentCustomerLocation
-        };
-        
-        const order = await saveOrder(orderData);
-        if (order) {
-            showToast('✅ Order placed!');
-            cart = [];
-            renderCart();
-            document.getElementById('phone').value = '';
-            document.getElementById('address').value = '';
-            navigateTo('track');
+        try {
+            const { error } = await supabase
+                .from('orders')
+                .update({ status: 'delivered', updated_at: new Date() })
+                .eq('id', orderId);
             
-            document.getElementById('trackingStatus').innerHTML = `
-                <div class="order-card">
-                    <h4>✅ Order Confirmed!</h4>
-                    <p>Waiting for a delivery girl...</p>
-                </div>
-            `;
+            if (!error) {
+                showToast('🎉 Order delivered!');
+                loadAvailableOrders();
+                loadMyDeliveries();
+                if (currentAdmin) loadAllOrdersAdmin();
+            }
+        } catch (e) {
+            showToast('❌ Error completing delivery');
         }
     }
 
-    // ============ ADMIN ORDERS ============
-    async function loadAllOrdersAdmin() {
-        const orders = await getAllOrders();
-        const total = orders.reduce((sum, o) => sum + (o.total || 0), 0);
-        document.getElementById('totalOrdersCount').innerHTML = orders.length;
-        document.getElementById('totalRevenue').innerHTML = total.toFixed(2);
-        
-        const container = document.getElementById('allOrdersList');
-        if (container) {
-            if (orders.length === 0) {
-                container.innerHTML = '<p style="color:#999">No orders yet</p>';
-            } else {
-                container.innerHTML = orders.map(order => `
-                    <div class="order-card">
-                        <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
-                        <div>📞 ${order.customer_phone}</div>
-                        <div>📍 ${(order.delivery_address || 'N/A').substring(0, 50)}</div>
-                        <div>💰 ZMW ${order.total} | ${order.payment_method}</div>
-                        <div>📅 ${new Date(order.created_at).toLocaleString()}</div>
-                        ${order.delivery_girl_name ? `<div>👧 Delivery: ${order.delivery_girl_name}</div>` : ''}
-                    </div>
-                `).join('');
-            }
+    // ============ ADMIN FUNCTIONS ============
+    
+    function loginAdmin() {
+        const password = document.getElementById('adminPassword').value;
+        if (password === ADMIN_PASSWORD) {
+            currentAdmin = true;
+            document.getElementById('adminLogin').style.display = 'none';
+            document.getElementById('adminDashboard').style.display = 'block';
+            loadDeliveryGirls();
+            loadAllOrdersAdmin();
+            renderAdminMenu();
+            showToast('✅ Admin logged in!');
+        } else {
+            showToast('❌ Wrong password');
         }
-        applyFilter();
+    }
+
+    async function loadAllOrdersAdmin() {
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .order('created_at', { ascending: false });
+            
+            const orders = error ? [] : data;
+            const total = orders.reduce((sum, o) => sum + (o.total || 0), 0);
+            document.getElementById('totalOrdersCount').innerHTML = orders.length;
+            document.getElementById('totalRevenue').innerHTML = total.toFixed(2);
+            
+            const container = document.getElementById('allOrdersList');
+            if (container) {
+                if (orders.length === 0) {
+                    container.innerHTML = '<p style="color:#999">No orders yet</p>';
+                } else {
+                    container.innerHTML = orders.map(order => `
+                        <div class="order-card">
+                            <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                            <div>📞 ${order.customer_phone}</div>
+                            <div>📍 ${(order.delivery_address || 'N/A').substring(0, 50)}</div>
+                            <div>💰 ZMW ${order.total} | ${order.payment_method}</div>
+                            <div>📅 ${new Date(order.created_at).toLocaleString()}</div>
+                            ${order.delivery_girl_name ? `<div>👧 Delivery: ${order.delivery_girl_name}</div>` : ''}
+                        </div>
+                    `).join('');
+                }
+            }
+        } catch (e) {
+            console.log('Error loading orders:', e);
+        }
     }
 
     async function filterOrdersByMonth(month) {
@@ -808,38 +800,47 @@
     }
 
     async function applyFilter() {
-        const orders = await getAllOrders();
-        let filteredOrders = [...orders];
-        const now = new Date();
-        
-        if (currentFilter !== 'all') {
-            filteredOrders = orders.filter(o => {
-                const orderDate = new Date(o.created_at);
-                return orderDate.getMonth() + 1 === currentFilter && orderDate.getFullYear() === now.getFullYear();
-            });
-        }
-        
-        const container = document.getElementById('filteredOrdersList');
-        if (container) {
-            if (filteredOrders.length === 0) {
-                container.innerHTML = '<p style="color:#999">No orders for this period</p>';
-            } else {
-                const totalFiltered = filteredOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-                container.innerHTML = `
-                    <div class="stat-card" style="background: #4CAF50; margin-bottom: 10px;">
-                        <p>📊 Filtered Total: ${filteredOrders.length} orders</p>
-                        <p>💰 Revenue: ZMW ${totalFiltered.toFixed(2)}</p>
-                    </div>
-                    ${filteredOrders.map(order => `
-                        <div class="order-card">
-                            <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
-                            <div>📞 ${order.customer_phone}</div>
-                            <div>💰 ZMW ${order.total}</div>
-                            <div>📅 ${new Date(order.created_at).toLocaleDateString()}</div>
-                        </div>
-                    `).join('')}
-                `;
+        try {
+            const { data } = await supabase
+                .from('orders')
+                .select('*')
+                .order('created_at', { ascending: false });
+            
+            const orders = data || [];
+            let filteredOrders = [...orders];
+            const now = new Date();
+            
+            if (currentFilter !== 'all') {
+                filteredOrders = orders.filter(o => {
+                    const orderDate = new Date(o.created_at);
+                    return orderDate.getMonth() + 1 === currentFilter && orderDate.getFullYear() === now.getFullYear();
+                });
             }
+            
+            const container = document.getElementById('filteredOrdersList');
+            if (container) {
+                if (filteredOrders.length === 0) {
+                    container.innerHTML = '<p style="color:#999">No orders for this period</p>';
+                } else {
+                    const totalFiltered = filteredOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+                    container.innerHTML = `
+                        <div class="stat-card" style="background: #4CAF50; margin-bottom: 10px;">
+                            <p>📊 Filtered Total: ${filteredOrders.length} orders</p>
+                            <p>💰 Revenue: ZMW ${totalFiltered.toFixed(2)}</p>
+                        </div>
+                        ${filteredOrders.map(order => `
+                            <div class="order-card">
+                                <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                                <div>📞 ${order.customer_phone}</div>
+                                <div>💰 ZMW ${order.total}</div>
+                                <div>📅 ${new Date(order.created_at).toLocaleDateString()}</div>
+                            </div>
+                        `).join('')}
+                    `;
+                }
+            }
+        } catch (e) {
+            console.log('Error applying filter:', e);
         }
     }
 
@@ -889,7 +890,6 @@
         
         try {
             if (editId) {
-                // Update existing item
                 const item = menu.find(i => i.id === parseInt(editId));
                 if (item && item.uuid) {
                     const { error } = await supabase
@@ -903,7 +903,6 @@
                     }
                 }
             } else {
-                // Add new item
                 const { error } = await supabase
                     .from('foods')
                     .insert([{ name, description, price, image_url: image, is_available: true }]);
@@ -934,7 +933,6 @@
                     showToast('🗑️ Item deleted');
                 }
             } else {
-                // Remove from local menu if no UUID
                 menu = menu.filter(i => i.id !== id);
                 renderMenu();
                 if (currentAdmin) renderAdminMenu();
@@ -979,31 +977,6 @@
                 },
                 () => showToast('❌ Unable to get location')
             );
-        }
-    }
-
-    async function loginDeliveryGirl() {
-        const name = document.getElementById('deliveryName').value;
-        const pin = document.getElementById('deliveryPin').value;
-        const girl = await verifyDeliveryGirlSupabase(name, pin);
-        if (girl) {
-            currentDeliveryGirl = { name: girl.name, location: null, id: girl.id };
-            document.getElementById('deliveryLogin').style.display = 'none';
-            document.getElementById('deliveryDashboard').style.display = 'block';
-            document.getElementById('deliveryGirlName').innerText = girl.name;
-            initDeliveryMap();
-            updateDeliveryLocation();
-            loadAvailableOrders();
-            loadMyDeliveries();
-            setInterval(() => {
-                if (currentDeliveryGirl) {
-                    loadAvailableOrders();
-                    loadMyDeliveries();
-                }
-            }, 10000);
-            showToast(`✅ Welcome ${girl.name}!`);
-        } else {
-            showToast('❌ Invalid credentials. Try Name: Laura, PIN: 1234');
         }
     }
 
