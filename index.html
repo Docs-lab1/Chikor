@@ -72,7 +72,9 @@
     </style>
 </head>
 <body>
+
 <div class="app-container">
+
     <div class="app-header">
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
             <img src="images/logo.png" class="logo-img" alt="Logo" onerror="this.style.display='none'">
@@ -225,7 +227,8 @@
         <button class="nav-item" onclick="navigateTo('admin')"><i class="fas fa-user-shield"></i><span>Admin</span></button>
         <button class="nav-item" onclick="navigateTo('profile')"><i class="fas fa-user"></i><span>Profile</span></button>
     </div>
-</div>
+
+</div> <!-- END of app-container -->
 
 <!-- Modal for Add/Edit Menu Item -->
 <div id="menuModal" class="modal">
@@ -244,7 +247,7 @@
 </div>
 
 <script>
-    // ============ SUPABASE CONFIGURATION - YOUR KEYS ADDED ============
+    // ============ SUPABASE CONFIGURATION ============
     const SUPABASE_URL = 'https://auzuhfvehsptzculecvg.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1enVoZnZlaHNwdHpjdWxlY3ZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NTgxOTEsImV4cCI6MjA5ODEzNDE5MX0.BoAmGoaVGhXdaeYBfZvKsM8rC2UB7BNgCv4h7YQAr9s';
     
@@ -263,7 +266,7 @@
     const KASAMA_CENTER = [-10.2129, 31.1809];
     const ADMIN_PASSWORD = "admin123";
 
-    // ============ HARDCODED MENU (ALWAYS WORKS!) ============
+    // ============ HARDCODED MENU ============
     const HARDCODED_MENU = [
         { id: 1, name: "Nshima with Chicken", description: "Traditional nshima + grilled chicken + rape", price: 45, image: "https://i.imgur.com/7ZqFq6R.jpg" },
         { id: 2, name: "Beef Burger", description: "Zambian beef patty with chips", price: 35, image: "https://i.imgur.com/8YqGq7S.jpg" },
@@ -276,14 +279,14 @@
         { id: 9, name: "Coca Cola", description: "Chilled soft drink", price: 12, image: "https://i.imgur.com/1XqHq0M.jpg" }
     ];
 
-    // ============ LOAD MENU (IMMEDIATE FALLBACK) ============
+    // ============ LOAD MENU ============
     async function loadMenu() {
-        // FIRST: Set menu to hardcoded data immediately
+        // Load hardcoded menu immediately
         menu = HARDCODED_MENU.map(item => ({ ...item }));
-        renderMenu(); // Show menu right away!
+        renderMenu();
         document.getElementById('menuItemsCount').innerHTML = menu.length;
         
-        // THEN: Try to load from Supabase (optional)
+        // Try Supabase in background
         try {
             const { data, error } = await supabase
                 .from('foods')
@@ -292,7 +295,6 @@
                 .limit(20);
             
             if (!error && data && data.length > 0) {
-                // If Supabase has data, use it instead
                 menu = data.map((item, index) => ({
                     id: index + 1,
                     uuid: item.id,
@@ -301,13 +303,12 @@
                     price: parseFloat(item.price),
                     image: item.image_url || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)
                 }));
-                renderMenu(); // Re-render with Supabase data
+                renderMenu();
                 document.getElementById('menuItemsCount').innerHTML = menu.length;
             }
         } catch (e) {
-            console.log('Supabase not available, using hardcoded menu');
+            console.log('Using hardcoded menu');
         }
-        
         if (currentAdmin) renderAdminMenu();
     }
 
@@ -316,12 +317,10 @@
     function renderMenu() {
         const container = document.getElementById('menuGrid');
         if (!container) return;
-        
         if (!menu || menu.length === 0) {
             container.innerHTML = '<p style="text-align:center; color:#999; padding:40px 0;">No items available</p>';
             return;
         }
-        
         container.innerHTML = menu.map(item => `
             <div class="menu-card">
                 <img src="${item.image || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)}" 
@@ -1056,5 +1055,6 @@
 
     init();
 </script>
+
 </body>
 </html>
