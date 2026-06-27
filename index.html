@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
+    <title>Chikorlando Restaurant & Take Away</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; overflow-x: hidden; }
+        .app-container { max-width: 450px; margin: 0 auto; background: #f8f9fa; min-height: 100vh; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+        .app-header { background: linear-gradient(135deg, #E85D04, #FF8C42); color: white; padding: 20px 16px; position: sticky; top: 0; z-index: 100; }
+        .app-header h1 { font-size: 1.5rem; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .app-header p { font-size: 0.75rem; opacity: 0.9; margin-top: 5px; }
+        .logo-img { height: 45px; width: auto; border-radius: 50%; object-fit: cover; }
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; max-width: 450px; margin: 0 auto; background: white; display: flex; justify-content: space-around; padding: 10px 0 20px; border-top: 1px solid #eee; z-index: 100; overflow-x: auto; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: none; font-size: 0.65rem; color: #888; cursor: pointer; min-width: 60px; }
+        .nav-item i { font-size: 1.2rem; }
+        .nav-item.active { color: #E85D04; }
+        .main-content { padding: 16px; padding-bottom: 80px; }
+        .page { display: none; animation: fadeIn 0.3s ease; }
+        .page.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+        .menu-card { background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .menu-card.admin-mode { border: 2px solid #E85D04; }
+        .menu-img { width: 100%; height: 130px; object-fit: cover; background: #f0f0f0; }
+        .menu-info { padding: 10px; }
+        .menu-info h3 { font-size: 0.9rem; margin-bottom: 4px; }
+        .menu-info p { font-size: 0.7rem; color: #777; margin-bottom: 8px; }
+        .price { color: #E85D04; font-weight: bold; font-size: 1rem; margin-bottom: 8px; }
+        .add-btn, .edit-btn, .delete-btn { background: #E85D04; color: white; border: none; padding: 6px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; width: 100%; cursor: pointer; margin-top: 5px; }
+        .delete-btn { background: #ff4444; }
+        .edit-btn { background: #2196F3; }
+        .cart-card { background: white; border-radius: 16px; padding: 16px; margin-bottom: 16px; }
+        .cart-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; }
+        .total { font-size: 1.2rem; font-weight: bold; margin-top: 12px; text-align: right; color: #E85D04; }
+        .input-field { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 12px; margin: 8px 0; font-size: 0.9rem; }
+        .gps-btn { background: #2196F3; color: white; border: none; padding: 12px; border-radius: 12px; width: 100%; margin: 8px 0; font-weight: 600; cursor: pointer; }
+        .payment-option { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #ddd; border-radius: 12px; margin: 8px 0; }
+        .order-btn { background: linear-gradient(135deg, #4CAF50, #45a049); color: white; border: none; padding: 14px; border-radius: 12px; width: 100%; font-size: 1rem; font-weight: bold; margin-top: 16px; cursor: pointer; }
+        .order-btn:disabled { background: #ccc; cursor: not-allowed; }
+        .map-container { background: white; border-radius: 16px; overflow: hidden; margin: 16px 0; }
+        #customerMap, #deliveryMap { height: 280px; width: 100%; }
+        .order-card { background: white; border-radius: 12px; padding: 12px; margin-bottom: 12px; border-left: 4px solid #E85D04; }
+        .status-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.65rem; font-weight: bold; }
+        .status-pending { background: #ff9800; color: white; }
+        .status-accepted { background: #2196F3; color: white; }
+        .status-delivering { background: #9c27b0; color: white; }
+        .status-delivered { background: #4CAF50; color: white; }
+        .delivery-boy-card { background: linear-gradient(135deg, #fff3e0, #ffe8d6); border-radius: 16px; padding: 16px; margin-bottom: 16px; }
+        .btn-primary { background: #E85D04; color: white; border: none; padding: 10px; border-radius: 12px; width: 100%; font-weight: bold; margin: 5px 0; cursor: pointer; }
+        .notification { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: #333; color: white; padding: 12px 20px; border-radius: 30px; font-size: 0.8rem; z-index: 1000; text-align: center; max-width: 90%; }
+        .filter-bar { display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap; }
+        .filter-btn { background: #eee; border: none; padding: 8px 12px; border-radius: 20px; cursor: pointer; font-size: 0.7rem; }
+        .filter-btn.active { background: #E85D04; color: white; }
+        .delivery-girl-card { background: #fff3e0; border-radius: 12px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .stat-card { background: linear-gradient(135deg, #667eea, #764ba2); color: white; border-radius: 12px; padding: 12px; text-align: center; margin-bottom: 10px; }
+        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-content { background: white; border-radius: 20px; padding: 20px; max-width: 350px; width: 90%; margin: auto; }
+        .modal-buttons { display: flex; gap: 10px; margin-top: 15px; }
+        .modal-buttons button { flex: 1; padding: 10px; border-radius: 10px; border: none; cursor: pointer; }
+        .modal-buttons button:first-child { background: #4CAF50; color: white; }
+        .modal-buttons button:last-child { background: #ccc; }
+        .delivery-movement { background: #4CAF50; color: white; padding: 4px 8px; border-radius: 20px; font-size: 0.7rem; display: inline-block; }
+        .admin-badge { position: absolute; top: 5px; right: 5px; background: #E85D04; color: white; padding: 2px 6px; border-radius: 10px; font-size: 0.6rem; z-index: 1; }
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <div class="app-header">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <img src="images/logo.png" class="logo-img" alt="Logo" onerror="this.style.display='none'">
+            <div>
+                <h1>Chikorlando Restaurant<br>& Take Away</h1>
+                <p>📍 Kasama, Zambia • Delivering Happiness</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <!-- HOME PAGE -->
+        <div id="homePage" class="page active">
+            <div class="menu-grid" id="menuGrid"></div>
+        </div>
+
+        <!-- CART PAGE -->
+        <div id="cartPage" class="page">
+            <div class="cart-card"><h3>🛒 Your Order</h3><div id="cartItemsList"></div><div class="total" id="cartTotal">Total: ZMW 0.00</div></div>
+            <div class="cart-card">
+                <h3>📞 Contact Details</h3>
+                <input type="tel" id="phone" class="input-field" placeholder="Phone Number (e.g., 0971234567)">
+                <textarea id="address" class="input-field" rows="2" placeholder="Delivery Address"></textarea>
+                <button class="gps-btn" onclick="getCustomerGPSLocation()"><i class="fas fa-location-dot"></i> Use My GPS Location</button>
+                <input type="text" id="landmark" class="input-field" placeholder="Landmark (Optional)">
+            </div>
+            <div class="cart-card">
+                <h3>💳 Payment Method</h3>
+                <div class="payment-option"><input type="radio" name="payment" value="cash" checked> 💵 Cash on Delivery</div>
+                <div class="payment-option"><input type="radio" name="payment" value="mobile_money"> 📱 Mobile Money (Airtel/MTN)</div>
+            </div>
+            <button class="order-btn" onclick="placeOrder()"><i class="fas fa-truck"></i> Place Order</button>
+        </div>
+
+        <!-- TRACK PAGE -->
+        <div id="trackPage" class="page">
+            <div class="map-container"><div id="customerMap"></div></div>
+            <div id="trackingStatus" class="cart-card"></div>
+            <div id="orderHistoryList"></div>
+        </div>
+
+        <!-- DELIVERY PAGE -->
+        <div id="deliveryPage" class="page">
+            <div id="deliveryLogin" class="cart-card" style="text-align:center">
+                <i class="fas fa-female" style="font-size: 50px; color: #E85D04;"></i>
+                <h3>Delivery Girl Login</h3>
+                <input type="text" id="deliveryName" class="input-field" placeholder="Name (e.g., Laura)">
+                <input type="password" id="deliveryPin" class="input-field" placeholder="PIN (1234 for demo)">
+                <button class="btn-primary" onclick="loginDeliveryGirl()">Login</button>
+            </div>
+            <div id="deliveryDashboard" style="display:none">
+                <div class="delivery-boy-card">
+                    <h3><i class="fas fa-female"></i> Welcome, <span id="deliveryGirlName"></span></h3>
+                    <button class="btn-primary" onclick="updateDeliveryLocation()"><i class="fas fa-satellite-dish"></i> Update My Live Location</button>
+                    <div id="deliveryLocationStatus" class="delivery-movement" style="margin-top:8px">📍 Location: Not set</div>
+                </div>
+                <h3>📋 Available Orders</h3>
+                <div id="availableOrdersList"></div>
+                <h3>🛵 My Active Deliveries</h3>
+                <div id="myDeliveriesList"></div>
+                <div class="map-container"><div id="deliveryMap"></div></div>
+                <div id="navPanel"></div>
+            </div>
+        </div>
+
+        <!-- ADMIN PAGE -->
+        <div id="adminPage" class="page">
+            <div id="adminLogin" class="cart-card" style="text-align:center">
+                <i class="fas fa-lock" style="font-size: 50px; color: #E85D04;"></i>
+                <h3>Admin Login</h3>
+                <input type="password" id="adminPassword" class="input-field" placeholder="Admin Password">
+                <button class="btn-primary" onclick="loginAdmin()">Login</button>
+            </div>
+            <div id="adminDashboard" style="display:none">
+                <div class="stat-card">
+                    <h3>📊 Admin Dashboard</h3>
+                    <p>Total Orders: <span id="totalOrdersCount">0</span></p>
+                    <p>Total Revenue: ZMW <span id="totalRevenue">0</span></p>
+                    <p>Menu Items: <span id="menuItemsCount">0</span></p>
+                </div>
+                
+                <div class="cart-card">
+                    <h3>🍕 Manage Menu</h3>
+                    <button class="btn-primary" onclick="showAddMenuItemModal()"><i class="fas fa-plus"></i> Add New Food Item</button>
+                    <div id="adminMenuList" style="margin-top: 15px;"></div>
+                </div>
+
+                <div class="cart-card">
+                    <h3>👩‍🦱 Manage Delivery Girls</h3>
+                    <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
+                        <input type="text" id="newGirlName" class="input-field" placeholder="Name" style="flex:2">
+                        <input type="text" id="newGirlPin" class="input-field" placeholder="PIN" style="flex:1">
+                        <button class="btn-primary" onclick="addDeliveryGirl()" style="flex:1; margin:0">Add</button>
+                    </div>
+                    <div id="deliveryGirlsList"></div>
+                </div>
+
+                <div class="cart-card">
+                    <h3>📅 Filter Orders by Month</h3>
+                    <div class="filter-bar">
+                        <button class="filter-btn active" onclick="filterOrdersByMonth('all')">All</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(1)">Jan</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(2)">Feb</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(3)">Mar</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(4)">Apr</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(5)">May</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(6)">Jun</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(7)">Jul</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(8)">Aug</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(9)">Sep</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(10)">Oct</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(11)">Nov</button>
+                        <button class="filter-btn" onclick="filterOrdersByMonth(12)">Dec</button>
+                    </div>
+                    <div id="filteredOrdersList"></div>
+                </div>
+
+                <div class="cart-card">
+                    <h3>📋 All Orders</h3>
+                    <div id="allOrdersList"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PROFILE PAGE -->
+        <div id="profilePage" class="page">
+            <div class="cart-card" style="text-align:center">
+                <i class="fas fa-store" style="font-size: 50px; color: #E85D04;"></i>
+                <h3>Chikorlando Restaurant</h3>
+                <p>📍 Kasama Town Center</p>
+                <p>📞 +260 97 123 4567</p>
+                <p>⏰ Mon-Sun: 8AM - 10PM</p>
+                <hr style="margin:15px 0">
+                <h4>About Us</h4>
+                <p>We serve fresh, delicious Zambian cuisine with love. Our delivery girls ensure your food arrives hot and on time!</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="bottom-nav">
+        <button class="nav-item active" onclick="navigateTo('home')"><i class="fas fa-home"></i><span>Home</span></button>
+        <button class="nav-item" onclick="navigateTo('cart')"><i class="fas fa-shopping-cart"></i><span>Cart</span></button>
+        <button class="nav-item" onclick="navigateTo('track')"><i class="fas fa-map-marker-alt"></i><span>Track</span></button>
+        <button class="nav-item" onclick="navigateTo('delivery')"><i class="fas fa-motorcycle"></i><span>Delivery</span></button>
+        <button class="nav-item" onclick="navigateTo('admin')"><i class="fas fa-user-shield"></i><span>Admin</span></button>
+        <button class="nav-item" onclick="navigateTo('profile')"><i class="fas fa-user"></i><span>Profile</span></button>
+    </div>
+</div>
+
+<!-- Modal for Add/Edit Menu Item -->
+<div id="menuModal" class="modal">
+    <div class="modal-content">
+        <h3 id="modalTitle">Add New Food Item</h3>
+        <input type="text" id="itemName" class="input-field" placeholder="Food Name">
+        <textarea id="itemDesc" class="input-field" rows="2" placeholder="Description"></textarea>
+        <input type="number" id="itemPrice" class="input-field" placeholder="Price (ZMW)">
+        <input type="text" id="itemImage" class="input-field" placeholder="Image URL (e.g., https://i.imgur.com/xxxx.jpg)">
+        <input type="hidden" id="editItemId">
+        <div class="modal-buttons">
+            <button onclick="saveMenuItem()">Save</button>
+            <button onclick="closeModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ============ MENU DATA (WORKING IMAGES) ============
+    const defaultMenu = [
+        { id: 1, name: "Nshima with Chicken", description: "Traditional nshima + grilled chicken + rape", price: 45, image: "https://i.imgur.com/7ZqFq6R.jpg" },
+        { id: 2, name: "Beef Burger", description: "Zambian beef patty with chips", price: 35, image: "https://i.imgur.com/8YqGq7S.jpg" },
+        { id: 3, name: "Pizza Special", description: "Loaded with sausage, peppers & cheese", price: 60, image: "https://i.imgur.com/9XqHq8T.jpg" },
+        { id: 4, name: "Fried Bream", description: "Fresh bream fish with nshima", price: 50, image: "https://i.imgur.com/6WpFq5R.jpg" },
+        { id: 5, name: "Vegetable Rice", description: "Rice with mixed vegetables", price: 30, image: "https://i.imgur.com/5VqGq4Q.jpg" },
+        { id: 6, name: "Chicken Wings", description: "Spicy grilled wings + chips", price: 40, image: "https://i.imgur.com/4XqHq3P.jpg" },
+        { id: 7, name: "Breakfast Roll", description: "Egg, sausage, cheese roll", price: 25, image: "https://i.imgur.com/3YqGq2O.jpg" },
+        { id: 8, name: "Chibuku Shake", description: "Traditional maheu shake", price: 10, image: "https://i.imgur.com/2ZqHq1N.jpg" },
+        { id: 9, name: "Coca Cola", description: "Chilled soft drink", price: 12, image: "https://i.imgur.com/1XqHq0M.jpg" }
+    ];
+
+    let menu = [];
+    let db;
+    let cart = [];
+    let currentCustomerLocation = null;
+    let customerMap, customerMarker;
+    let deliveryMap, deliveryMarker;
+    let currentDeliveryGirl = null;
+    let currentAdmin = false;
+    let currentFilter = 'all';
+    
+    const KASAMA_CENTER = [-10.2129, 31.1809];
+    const ADMIN_PASSWORD = "admin123";
+
+    // ============ DATABASE INITIALIZATION ============
+    function initDB() {
+        const request = indexedDB.open('ChikorlandoDB', 2);
+        request.onerror = (e) => {
+            console.error('Database error:', e);
+            showToast('⚠️ Database error - using default menu');
+            menu = [...defaultMenu];
+            renderMenu();
+        };
+        request.onsuccess = (e) => {
+            db = e.target.result;
+            console.log('Database ready');
+            loadMenuFromDB();
+            loadDeliveryGirls();
+            loadAvailableOrders();
+            loadMyDeliveries();
+            if (currentAdmin) loadAllOrdersAdmin();
+        };
+        request.onupgradeneeded = (e) => {
+            db = e.target.result;
+            console.log('Creating database stores...');
+            if (!db.objectStoreNames.contains('orders')) {
+                db.createObjectStore('orders', { keyPath: 'id', autoIncrement: true });
+            }
+            if (!db.objectStoreNames.contains('deliveryGirls')) {
+                const girlStore = db.createObjectStore('deliveryGirls', { keyPath: 'id', autoIncrement: true });
+                // Add default delivery girl
+                girlStore.add({ name: "Laura", pin: "1234", createdAt: new Date().toISOString() });
+            }
+            if (!db.objectStoreNames.contains('menu')) {
+                const menuStore = db.createObjectStore('menu', { keyPath: 'id', autoIncrement: true });
+                // Add default menu items
+                defaultMenu.forEach(item => {
+                    menuStore.add(item);
+                });
+            }
+        };
+    }
+
+    // ============ MENU FUNCTIONS ============
+    async function loadMenuFromDB() {
+        if (!db) {
+            menu = [...defaultMenu];
+            renderMenu();
+            return;
+        }
+        try {
+            const tx = db.transaction(['menu'], 'readonly');
+            const store = tx.objectStore('menu');
+            const savedMenu = await new Promise((resolve) => {
+                store.getAll().onsuccess = (e) => resolve(e.target.result || []);
+                store.getAll().onerror = () => resolve([]);
+            });
+            if (savedMenu.length > 0) {
+                menu = savedMenu;
+            } else {
+                menu = [...defaultMenu];
+                await saveMenuToDB();
+                console.log('Default menu saved to database');
+            }
+        } catch (e) {
+            console.error('Error loading menu:', e);
+            menu = [...defaultMenu];
+        }
+        renderMenu();
+        if (currentAdmin) renderAdminMenu();
+        const menuCountElem = document.getElementById('menuItemsCount');
+        if (menuCountElem) menuCountElem.innerHTML = menu.length;
+    }
+
+    async function saveMenuToDB() {
+        if (!db) return;
+        try {
+            const tx = db.transaction(['menu'], 'readwrite');
+            const store = tx.objectStore('menu');
+            store.clear();
+            menu.forEach(item => {
+                store.add(item);
+            });
+        } catch (e) {
+            console.error('Error saving menu:', e);
+        }
+    }
+
+    // ============ RENDER FUNCTIONS ============
+    function renderMenu() {
+        const container = document.getElementById('menuGrid');
+        if (!container) return;
+        if (!menu || menu.length === 0) {
+            container.innerHTML = '<p style="text-align:center; color:#999;">No items available</p>';
+            return;
+        }
+        container.innerHTML = menu.map(item => `
+            <div class="menu-card">
+                <img src="${item.image || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)}" class="menu-img" alt="${item.name}" onerror="this.src='https://via.placeholder.com/400x300?text=${encodeURIComponent(item.name)}'">
+                <div class="menu-info">
+                    <h3>${escapeHtml(item.name)}</h3>
+                    <p>${escapeHtml(item.description || '')}</p>
+                    <div class="price">ZMW ${item.price}</div>
+                    <button class="add-btn" onclick="addToCart(${item.id})">+ Add to Cart</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderAdminMenu() {
+        const container = document.getElementById('adminMenuList');
+        if (!container || !currentAdmin) return;
+        if (!menu || menu.length === 0) {
+            container.innerHTML = '<p style="color:#999">No items in menu. Add some!</p>';
+            return;
+        }
+        container.innerHTML = menu.map(item => `
+            <div class="menu-card admin-mode" style="margin-bottom: 12px; position:relative;">
+                <div class="admin-badge">ID: ${item.id}</div>
+                <img src="${item.image || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)}" class="menu-img" alt="${item.name}" style="height: 100px;" onerror="this.src='https://via.placeholder.com/400x300?text=${encodeURIComponent(item.name)}'">
+                <div class="menu-info">
+                    <h3>${escapeHtml(item.name)}</h3>
+                    <p>${escapeHtml(item.description || '')}</p>
+                    <div class="price">ZMW ${item.price}</div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="edit-btn" onclick="showEditMenuItemModal(${item.id})">✏️ Edit</button>
+                        <button class="delete-btn" onclick="deleteMenuItem(${item.id})">🗑️ Delete</button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    // ============ MENU CRUD ============
+    async function addMenuItem(item) {
+        const newId = menu.length > 0 ? Math.max(...menu.map(i => i.id)) + 1 : 1;
+        const newItem = { ...item, id: newId };
+        menu.push(newItem);
+        await saveMenuToDB();
+        renderMenu();
+        if (currentAdmin) renderAdminMenu();
+        showToast(`✅ Added: ${item.name}`);
+        const menuCountElem = document.getElementById('menuItemsCount');
+        if (menuCountElem) menuCountElem.innerHTML = menu.length;
+    }
+
+    async function updateMenuItem(id, updatedItem) {
+        const index = menu.findIndex(i => i.id === id);
+        if (index !== -1) {
+            menu[index] = { ...menu[index], ...updatedItem, id: id };
+            await saveMenuToDB();
+            renderMenu();
+            if (currentAdmin) renderAdminMenu();
+            showToast(`✅ Updated: ${updatedItem.name}`);
+        }
+    }
+
+    async function deleteMenuItem(id) {
+        if (confirm('Are you sure you want to delete this item?')) {
+            menu = menu.filter(i => i.id !== id);
+            await saveMenuToDB();
+            renderMenu();
+            if (currentAdmin) renderAdminMenu();
+            showToast('🗑️ Item deleted');
+            const menuCountElem = document.getElementById('menuItemsCount');
+            if (menuCountElem) menuCountElem.innerHTML = menu.length;
+        }
+    }
+
+    // ============ MODAL FUNCTIONS ============
+    function showAddMenuItemModal() {
+        document.getElementById('modalTitle').innerText = 'Add New Food Item';
+        document.getElementById('itemName').value = '';
+        document.getElementById('itemDesc').value = '';
+        document.getElementById('itemPrice').value = '';
+        document.getElementById('itemImage').value = '';
+        document.getElementById('editItemId').value = '';
+        document.getElementById('menuModal').style.display = 'flex';
+    }
+
+    function showEditMenuItemModal(id) {
+        const item = menu.find(i => i.id === id);
+        if (item) {
+            document.getElementById('modalTitle').innerText = 'Edit Food Item';
+            document.getElementById('itemName').value = item.name;
+            document.getElementById('itemDesc').value = item.description || '';
+            document.getElementById('itemPrice').value = item.price;
+            document.getElementById('itemImage').value = item.image || '';
+            document.getElementById('editItemId').value = id;
+            document.getElementById('menuModal').style.display = 'flex';
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('menuModal').style.display = 'none';
+    }
+
+    async function saveMenuItem() {
+        const name = document.getElementById('itemName').value.trim();
+        const description = document.getElementById('itemDesc').value.trim();
+        const price = parseFloat(document.getElementById('itemPrice').value);
+        let image = document.getElementById('itemImage').value.trim();
+        const editId = document.getElementById('editItemId').value;
+        
+        if (!name || isNaN(price) || price <= 0) {
+            showToast('❌ Please fill valid name and price');
+            return;
+        }
+        
+        if (!image) {
+            image = 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(name);
+        }
+        
+        if (editId) {
+            await updateMenuItem(parseInt(editId), { name, description, price, image });
+        } else {
+            await addMenuItem({ name, description, price, image });
+        }
+        
+        closeModal();
+    }
+
+    // ============ DELIVERY GIRL FUNCTIONS ============
+    async function loadDeliveryGirls() {
+        if (!db) return;
+        try {
+            const tx = db.transaction(['deliveryGirls'], 'readonly');
+            const store = tx.objectStore('deliveryGirls');
+            const girls = await new Promise((resolve) => {
+                store.getAll().onsuccess = (e) => resolve(e.target.result || []);
+            });
+            
+            const container = document.getElementById('deliveryGirlsList');
+            if (container && currentAdmin) {
+                if (!girls || girls.length === 0) {
+                    container.innerHTML = '<p style="color:#999">No delivery girls added yet</p>';
+                } else {
+                    container.innerHTML = girls.map(girl => `
+                        <div class="delivery-girl-card">
+                            <div><strong>${escapeHtml(girl.name)}</strong> (PIN: ${girl.pin})</div>
+                            <button class="delete-btn" onclick="deleteDeliveryGirl(${girl.id})">Delete</button>
+                        </div>
+                    `).join('');
+                }
+            }
+            return girls;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    async function addDeliveryGirl() {
+        const name = document.getElementById('newGirlName').value.trim();
+        const pin = document.getElementById('newGirlPin').value.trim();
+        if (!name || !pin) {
+            showToast('❌ Enter name and PIN');
+            return;
+        }
+        try {
+            const tx = db.transaction(['deliveryGirls'], 'readwrite');
+            const store = tx.objectStore('deliveryGirls');
+            store.add({ name: name, pin: pin, createdAt: new Date().toISOString() });
+            showToast(`✅ Delivery girl ${name} added! PIN: ${pin}`);
+            document.getElementById('newGirlName').value = '';
+            document.getElementById('newGirlPin').value = '';
+            loadDeliveryGirls();
+        } catch (e) {
+            showToast('❌ Failed to add delivery girl');
+        }
+    }
+
+    async function deleteDeliveryGirl(id) {
+        if (confirm('Delete this delivery girl?')) {
+            try {
+                const tx = db.transaction(['deliveryGirls'], 'readwrite');
+                const store = tx.objectStore('deliveryGirls');
+                store.delete(id);
+                showToast('Delivery girl deleted');
+                loadDeliveryGirls();
+            } catch (e) {
+                showToast('❌ Failed to delete');
+            }
+        }
+    }
+
+    async function verifyDeliveryGirl(name, pin) {
+        try {
+            const tx = db.transaction(['deliveryGirls'], 'readonly');
+            const store = tx.objectStore('deliveryGirls');
+            const girls = await new Promise((resolve) => {
+                store.getAll().onsuccess = (e) => resolve(e.target.result || []);
+            });
+            return girls.find(g => g.name === name && g.pin === pin);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // ============ ORDER FUNCTIONS ============
+    function saveOrder(order) {
+        return new Promise((resolve, reject) => {
+            try {
+                const tx = db.transaction(['orders'], 'readwrite');
+                const store = tx.objectStore('orders');
+                const req = store.add(order);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            } catch (e) {
+                reject(e);
+            }
+        });
+    }
+
+    function getAllOrders() {
+        return new Promise((resolve) => {
+            if (!db) { resolve([]); return; }
+            try {
+                const tx = db.transaction(['orders'], 'readonly');
+                const store = tx.objectStore('orders');
+                store.getAll().onsuccess = (e) => resolve(e.target.result || []);
+                store.getAll().onerror = () => resolve([]);
+            } catch (e) {
+                resolve([]);
+            }
+        });
+    }
+
+    async function updateOrderStatus(orderId, status, deliveryGirl = null) {
+        try {
+            const orders = await getAllOrders();
+            const order = orders.find(o => o.id === orderId);
+            if (order) {
+                order.status = status;
+                if (deliveryGirl) order.deliveryGirl = deliveryGirl;
+                order.lastUpdated = new Date().toISOString();
+                const tx = db.transaction(['orders'], 'readwrite');
+                const store = tx.objectStore('orders');
+                store.put(order);
+                if (currentAdmin) loadAllOrdersAdmin();
+                return true;
+            }
+            return false;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // ============ LOAD ORDERS ============
+    async function loadAvailableOrders() {
+        const orders = await getAllOrders();
+        const pending = orders.filter(o => o.status === 'pending');
+        const container = document.getElementById('availableOrdersList');
+        if (container && currentDeliveryGirl) {
+            if (pending.length === 0) {
+                container.innerHTML = '<p style="color:#999; text-align:center">No pending orders</p>';
+            } else {
+                container.innerHTML = pending.map(order => `
+                    <div class="order-card">
+                        <div><strong>Order #${order.id}</strong></div>
+                        <div>📍 ${(order.address || 'N/A').substring(0, 40)}...</div>
+                        <div>📞 ${order.phone}</div>
+                        <div>💰 ZMW ${order.total}</div>
+                        <div>🍽️ ${order.items ? order.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : ''}</div>
+                        <button class="btn-primary" onclick="acceptOrder(${order.id})">✓ Accept Delivery</button>
+                    </div>
+                `).join('');
+            }
+        }
+    }
+
+    async function loadMyDeliveries() {
+        if (!currentDeliveryGirl) return;
+        const orders = await getAllOrders();
+        const myOrders = orders.filter(o => o.deliveryGirl === currentDeliveryGirl.name && o.status !== 'delivered');
+        const container = document.getElementById('myDeliveriesList');
+        if (container) {
+            if (myOrders.length === 0) {
+                container.innerHTML = '<p style="color:#999; text-align:center">No active deliveries</p>';
+            } else {
+                container.innerHTML = myOrders.map(order => `
+                    <div class="order-card">
+                        <div><strong>Order #${order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                        <div>📍 ${(order.address || 'N/A').substring(0, 40)}</div>
+                        <div>📞 ${order.phone}</div>
+                        <div>💰 ZMW ${order.total}</div>
+                        ${order.status === 'accepted' ? 
+                            `<button class="btn-primary" onclick="startDelivery(${order.id})">🚚 Start Delivery</button>` : 
+                            order.status === 'delivering' ?
+                            `<button class="btn-primary" onclick="completeDelivery(${order.id})">✅ Mark Delivered</button>` : ''}
+                    </div>
+                `).join('');
+            }
+        }
+    }
+
+    // ============ ORDER ACTIONS ============
+    async function acceptOrder(orderId) {
+        await updateOrderStatus(orderId, 'accepted', currentDeliveryGirl.name);
+        showToast(`✅ Order #${orderId} accepted!`);
+        loadAvailableOrders();
+        loadMyDeliveries();
+    }
+
+    async function startDelivery(orderId) {
+        await updateOrderStatus(orderId, 'delivering');
+        showToast(`🚚 Delivery started for order #${orderId}`);
+        loadMyDeliveries();
+        const orders = await getAllOrders();
+        const order = orders.find(o => o.id === orderId);
+        if (order && order.address) {
+            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address + ', Kasama, Zambia')}`, '_blank');
+        }
+    }
+
+    async function completeDelivery(orderId) {
+        await updateOrderStatus(orderId, 'delivered');
+        showToast(`🎉 Order #${orderId} delivered!`);
+        loadAvailableOrders();
+        loadMyDeliveries();
+        if (currentAdmin) loadAllOrdersAdmin();
+    }
+
+    // ============ ADMIN FUNCTIONS ============
+    function loginAdmin() {
+        const password = document.getElementById('adminPassword').value;
+        if (password === ADMIN_PASSWORD) {
+            currentAdmin = true;
+            document.getElementById('adminLogin').style.display = 'none';
+            document.getElementById('adminDashboard').style.display = 'block';
+            loadDeliveryGirls();
+            loadAllOrdersAdmin();
+            renderAdminMenu();
+            showToast('✅ Admin logged in!');
+        } else {
+            showToast('❌ Wrong password');
+        }
+    }
+
+    async function loadAllOrdersAdmin() {
+        const orders = await getAllOrders();
+        const total = orders.reduce((sum, o) => sum + (o.total || 0), 0);
+        document.getElementById('totalOrdersCount').innerHTML = orders.length;
+        document.getElementById('totalRevenue').innerHTML = total.toFixed(2);
+        
+        const container = document.getElementById('allOrdersList');
+        if (container) {
+            if (orders.length === 0) {
+                container.innerHTML = '<p style="color:#999">No orders yet</p>';
+            } else {
+                container.innerHTML = orders.sort((a,b) => new Date(b.date) - new Date(a.date)).map(order => `
+                    <div class="order-card">
+                        <div><strong>Order #${order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                        <div>📞 ${order.phone}</div>
+                        <div>📍 ${(order.address || 'N/A').substring(0, 50)}</div>
+                        <div>🍽️ ${order.items ? order.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : ''}</div>
+                        <div>💰 ZMW ${order.total} | ${order.paymentMethod}</div>
+                        <div>📅 ${new Date(order.date).toLocaleString()}</div>
+                        ${order.deliveryGirl ? `<div>👧 Delivery: ${order.deliveryGirl}</div>` : ''}
+                    </div>
+                `).join('');
+            }
+        }
+        applyFilter();
+    }
+
+    async function filterOrdersByMonth(month) {
+        document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+        if (month !== 'all') {
+            const btns = document.querySelectorAll('.filter-btn');
+            if (btns[month]) btns[month].classList.add('active');
+        } else {
+            const btns = document.querySelectorAll('.filter-btn');
+            if (btns[0]) btns[0].classList.add('active');
+        }
+        currentFilter = month;
+        applyFilter();
+    }
+
+    async function applyFilter() {
+        const orders = await getAllOrders();
+        let filteredOrders = [...orders];
+        const now = new Date();
+        
+        if (currentFilter !== 'all') {
+            filteredOrders = orders.filter(o => {
+                const orderDate = new Date(o.date);
+                return orderDate.getMonth() + 1 === currentFilter && orderDate.getFullYear() === now.getFullYear();
+            });
+        }
+        
+        const container = document.getElementById('filteredOrdersList');
+        if (container) {
+            if (filteredOrders.length === 0) {
+                container.innerHTML = '<p style="color:#999">No orders for this period</p>';
+            } else {
+                const totalFiltered = filteredOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+                container.innerHTML = `
+                    <div class="stat-card" style="background: #4CAF50; margin-bottom: 10px;">
+                        <p>📊 Filtered Total: ${filteredOrders.length} orders</p>
+                        <p>💰 Revenue: ZMW ${totalFiltered.toFixed(2)}</p>
+                    </div>
+                    ${filteredOrders.map(order => `
+                        <div class="order-card">
+                            <div><strong>Order #${order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                            <div>📞 ${order.phone}</div>
+                            <div>💰 ZMW ${order.total}</div>
+                            <div>📅 ${new Date(order.date).toLocaleDateString()}</div>
+                        </div>
+                    `).join('')}
+                `;
+            }
+        }
+    }
+
+    // ============ CUSTOMER FUNCTIONS ============
+    function getCustomerGPSLocation() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    currentCustomerLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    document.getElementById('address').value = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)} - Kasama`;
+                    if (customerMap) {
+                        customerMap.setView([pos.coords.latitude, pos.coords.longitude], 16);
+                        if (customerMarker) customerMarker.setLatLng([pos.coords.latitude, pos.coords.longitude]);
+                    }
+                    showToast('📍 GPS location acquired!');
+                },
+                () => showToast('❌ Unable to get GPS'),
+                { enableHighAccuracy: true }
+            );
+        }
+    }
+
+    function updateDeliveryLocation() {
+        if (navigator.geolocation && currentDeliveryGirl) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    currentDeliveryGirl.location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    document.getElementById('deliveryLocationStatus').innerHTML = `📍 Live: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+                    if (deliveryMap) {
+                        deliveryMap.setView([pos.coords.latitude, pos.coords.longitude], 15);
+                        if (deliveryMarker) deliveryMap.removeLayer(deliveryMarker);
+                        deliveryMarker = L.marker([pos.coords.latitude, pos.coords.longitude]).addTo(deliveryMap).bindPopup('Your Location').openPopup();
+                    }
+                    showToast('📍 Location updated!');
+                },
+                () => showToast('❌ Unable to get location')
+            );
+        }
+    }
+
+    async function loginDeliveryGirl() {
+        const name = document.getElementById('deliveryName').value;
+        const pin = document.getElementById('deliveryPin').value;
+        const valid = await verifyDeliveryGirl(name, pin);
+        if (valid) {
+            currentDeliveryGirl = { name: name, location: null, id: valid.id };
+            document.getElementById('deliveryLogin').style.display = 'none';
+            document.getElementById('deliveryDashboard').style.display = 'block';
+            document.getElementById('deliveryGirlName').innerText = name;
+            initDeliveryMap();
+            updateDeliveryLocation();
+            loadAvailableOrders();
+            loadMyDeliveries();
+            setInterval(() => {
+                if (currentDeliveryGirl) {
+                    loadAvailableOrders();
+                    loadMyDeliveries();
+                }
+            }, 10000);
+            showToast(`✅ Welcome ${name}!`);
+        } else {
+            showToast('❌ Invalid credentials. Try Name: Laura, PIN: 1234');
+        }
+    }
+
+    // ============ CART FUNCTIONS ============
+    function addToCart(id) {
+        const item = menu.find(i => i.id === id);
+        if (!item) return;
+        const existing = cart.find(i => i.id === id);
+        if (existing) {
+            existing.quantity++;
+        } else {
+            cart.push({ ...item, quantity: 1 });
+        }
+        renderCart();
+        showToast(`✅ ${item.name} added to cart`);
+    }
+
+    function renderCart() {
+        const container = document.getElementById('cartItemsList');
+        const totalElem = document.getElementById('cartTotal');
+        if (!container) return;
+        if (cart.length === 0) {
+            container.innerHTML = '<p style="text-align:center; color:#999;">Cart is empty</p>';
+            totalElem.innerHTML = 'Total: ZMW 0.00';
+            return;
+        }
+        let total = 0;
+        container.innerHTML = cart.map(item => {
+            const itemTotal = item.price * item.quantity;
+            total += itemTotal;
+            return `
+                <div class="cart-item">
+                    <div><b>${escapeHtml(item.name)}</b> x${item.quantity}<br><small>ZMW ${item.price}</small></div>
+                    <div>ZMW ${itemTotal} <button onclick="removeFromCart(${item.id})" style="background:#ff4444; border:none; color:white; padding:4px 10px; border-radius:20px; margin-left:8px">×</button></div>
+                </div>
+            `;
+        }).join('');
+        totalElem.innerHTML = `Total: ZMW ${total.toFixed(2)}`;
+    }
+
+    function removeFromCart(id) {
+        const index = cart.findIndex(i => i.id === id);
+        if (index !== -1) {
+            if (cart[index].quantity > 1) {
+                cart[index].quantity--;
+            } else {
+                cart.splice(index, 1);
+            }
+            renderCart();
+        }
+    }
+
+    async function placeOrder() {
+        if (cart.length === 0) {
+            showToast('❌ Cart is empty');
+            return;
+        }
+        const phone = document.getElementById('phone').value;
+        const address = document.getElementById('address').value;
+        if (!phone || phone.length < 9) {
+            showToast('❌ Enter valid phone number (e.g., 0971234567)');
+            return;
+        }
+        if (!address) {
+            showToast('❌ Enter address or use GPS');
+            return;
+        }
+        
+        const payment = document.querySelector('input[name="payment"]:checked').value;
+        const total = cart.reduce((s, i) => s + (i.price * i.quantity), 0);
+        
+        const order = {
+            phone: phone,
+            address: address,
+            landmark: document.getElementById('landmark').value,
+            items: JSON.parse(JSON.stringify(cart)),
+            total: total,
+            paymentMethod: payment,
+            status: 'pending',
+            date: new Date().toISOString(),
+            customerLocation: currentCustomerLocation
+        };
+        
+        try {
+            const orderId = await saveOrder(order);
+            showToast(`✅ Order #${orderId} placed!`);
+            
+            cart = [];
+            renderCart();
+            document.getElementById('phone').value = '';
+            document.getElementById('address').value = '';
+            loadAvailableOrders();
+            navigateTo('track');
+            
+            document.getElementById('trackingStatus').innerHTML = `
+                <div class="order-card">
+                    <h4>✅ Order #${orderId} Confirmed!</h4>
+                    <p>Waiting for a delivery girl to accept your order...</p>
+                </div>
+            `;
+            
+            const trackInterval = setInterval(async () => {
+                const orders = await getAllOrders();
+                const updated = orders.find(o => o.id === orderId);
+                if (updated) {
+                    document.getElementById('trackingStatus').innerHTML = `
+                        <div class="order-card">
+                            <h4>🛵 Order #${orderId}</h4>
+                            <p>Status: <span class="status-badge status-${updated.status}">${updated.status.toUpperCase()}</span></p>
+                            ${updated.deliveryGirl ? `<p>👧 Delivery Girl: ${updated.deliveryGirl}</p>` : ''}
+                            ${updated.status === 'delivered' ? '<p>🎉 Delivered! Enjoy your meal!</p>' : ''}
+                        </div>
+                    `;
+                    if (updated.status === 'delivered') clearInterval(trackInterval);
+                }
+                const myOrders = orders.filter(o => o.phone === phone);
+                const historyDiv = document.getElementById('orderHistoryList');
+                if (historyDiv) {
+                    if (myOrders.length === 0) {
+                        historyDiv.innerHTML = '<p style="color:#999">No orders yet</p>';
+                    } else {
+                        historyDiv.innerHTML = myOrders.map(order => `
+                            <div class="order-card">
+                                <div><strong>Order #${order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                                <div>${new Date(order.date).toLocaleString()} | ZMW ${order.total}</div>
+                                <div>${order.items ? order.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : ''}</div>
+                            </div>
+                        `).join('');
+                    }
+                }
+            }, 3000);
+        } catch (e) {
+            showToast('❌ Failed to place order');
+        }
+    }
+
+    // ============ MAP FUNCTIONS ============
+    function initCustomerMap() {
+        if (typeof L === 'undefined') {
+            setTimeout(initCustomerMap, 500);
+            return;
+        }
+        if (document.getElementById('customerMap')) {
+            customerMap = L.map('customerMap').setView(KASAMA_CENTER, 14);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(customerMap);
+            customerMarker = L.marker(KASAMA_CENTER, { draggable: true }).addTo(customerMap);
+            customerMarker.on('dragend', (e) => {
+                const pos = customerMarker.getLatLng();
+                currentCustomerLocation = { lat: pos.lat, lng: pos.lng };
+                document.getElementById('address').value = `${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)} - Kasama`;
+            });
+        }
+    }
+
+    function initDeliveryMap() {
+        if (typeof L === 'undefined') return;
+        if (document.getElementById('deliveryMap')) {
+            deliveryMap = L.map('deliveryMap').setView(KASAMA_CENTER, 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(deliveryMap);
+            L.marker(KASAMA_CENTER).bindPopup("📍 Chikorlando Kitchen - Pickup").addTo(deliveryMap);
+        }
+    }
+
+    // ============ NAVIGATION ============
+    function navigateTo(page) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        const targetPage = document.getElementById(`${page}Page`);
+        if (targetPage) targetPage.classList.add('active');
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        
+        const navMap = { home: 0, cart: 1, track: 2, delivery: 3, admin: 4, profile: 5 };
+        const index = navMap[page];
+        if (index !== undefined) {
+            const navItems = document.querySelectorAll('.nav-item');
+            if (navItems[index]) navItems[index].classList.add('active');
+        }
+        
+        if (page === 'track' && !customerMap) initCustomerMap();
+        if (page === 'delivery' && deliveryMap) setTimeout(() => deliveryMap.invalidateSize(), 100);
+        if (page === 'admin' && currentAdmin) {
+            loadAllOrdersAdmin();
+            renderAdminMenu();
+        }
+    }
+
+    // ============ TOAST NOTIFICATION ============
+    function showToast(msg) {
+        const toast = document.createElement('div');
+        toast.className = 'notification';
+        toast.innerHTML = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2500);
+    }
+
+    // ============ INITIALIZE ============
+    initDB();
+    initCustomerMap();
+</script>
+</body>
+</html>
