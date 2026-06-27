@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -238,19 +237,13 @@
 </div>
 
 <script>
-    // ============ MENU DATA ============
-    const defaultMenu = [
-        { id: 1, name: "Nshima with Chicken", description: "Traditional nshima + grilled chicken + rape", price: 45, image: "https://i.imgur.com/7ZqFq6R.jpg" },
-        { id: 2, name: "Beef Burger", description: "Zambian beef patty with chips", price: 35, image: "https://i.imgur.com/8YqGq7S.jpg" },
-        { id: 3, name: "Pizza Special", description: "Loaded with sausage, peppers & cheese", price: 60, image: "https://i.imgur.com/9XqHq8T.jpg" },
-        { id: 4, name: "Fried Bream", description: "Fresh bream fish with nshima", price: 50, image: "https://i.imgur.com/6WpFq5R.jpg" },
-        { id: 5, name: "Vegetable Rice", description: "Rice with mixed vegetables", price: 30, image: "https://i.imgur.com/5VqGq4Q.jpg" },
-        { id: 6, name: "Chicken Wings", description: "Spicy grilled wings + chips", price: 40, image: "https://i.imgur.com/4XqHq3P.jpg" },
-        { id: 7, name: "Breakfast Roll", description: "Egg, sausage, cheese roll", price: 25, image: "https://i.imgur.com/3YqGq2O.jpg" },
-        { id: 8, name: "Chibuku Shake", description: "Traditional maheu shake", price: 10, image: "https://i.imgur.com/2ZqHq1N.jpg" },
-        { id: 9, name: "Coca Cola", description: "Chilled soft drink", price: 12, image: "https://i.imgur.com/1XqHq0M.jpg" }
-    ];
+    // ============ SUPABASE CONFIGURATION ============
+    const SUPABASE_URL = 'https://auzuhfvehsptzculecvg.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1enVoZnZlaHNwdHpjdWxlY3ZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NTgxOTEsImV4cCI6MjA5ODEzNDE5MX0.BoAmGoaVGhXdaeYBfZvKsM8rC2UB7BNgCv4h7YQAr9s';
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+    // ============ APP STATE ============
     let menu = [];
     let cart = [];
     let currentCustomerLocation = null;
@@ -263,11 +256,18 @@
     const KASAMA_CENTER = [-10.2129, 31.1809];
     const ADMIN_PASSWORD = "admin123";
 
-    // ============ SUPABASE CONFIGURATION - YOUR KEYS ADDED ============
-    const SUPABASE_URL = 'https://auzuhfvehsptzculecvg.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1enVoZnZlaHNwdHpjdWxlY3ZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NTgxOTEsImV4cCI6MjA5ODEzNDE5MX0.BoAmGoaVGhXdaeYBfZvKsM8rC2UB7BNgCv4h7YQAr9s';
-    
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // ============ DEFAULT MENU (Fallback if Supabase fails) ============
+    const defaultMenu = [
+        { id: 1, name: "Nshima with Chicken", description: "Traditional nshima + grilled chicken + rape", price: 45, image: "https://i.imgur.com/7ZqFq6R.jpg" },
+        { id: 2, name: "Beef Burger", description: "Zambian beef patty with chips", price: 35, image: "https://i.imgur.com/8YqGq7S.jpg" },
+        { id: 3, name: "Pizza Special", description: "Loaded with sausage, peppers & cheese", price: 60, image: "https://i.imgur.com/9XqHq8T.jpg" },
+        { id: 4, name: "Fried Bream", description: "Fresh bream fish with nshima", price: 50, image: "https://i.imgur.com/6WpFq5R.jpg" },
+        { id: 5, name: "Vegetable Rice", description: "Rice with mixed vegetables", price: 30, image: "https://i.imgur.com/5VqGq4Q.jpg" },
+        { id: 6, name: "Chicken Wings", description: "Spicy grilled wings + chips", price: 40, image: "https://i.imgur.com/4XqHq3P.jpg" },
+        { id: 7, name: "Breakfast Roll", description: "Egg, sausage, cheese roll", price: 25, image: "https://i.imgur.com/3YqGq2O.jpg" },
+        { id: 8, name: "Chibuku Shake", description: "Traditional maheu shake", price: 10, image: "https://i.imgur.com/2ZqHq1N.jpg" },
+        { id: 9, name: "Coca Cola", description: "Chilled soft drink", price: 12, image: "https://i.imgur.com/1XqHq0M.jpg" }
+    ];
 
     // ============ DATABASE FUNCTIONS ============
     
@@ -278,43 +278,59 @@
                 .from('foods')
                 .select('*')
                 .eq('is_available', true)
-                .order('name');
+                .order('created_at');
             
             if (error) {
-                console.error('Error loading menu:', error);
-                menu = [...defaultMenu];
+                console.error('Error loading menu from Supabase:', error);
+                // Use default menu if Supabase fails
+                menu = defaultMenu.map(item => ({ ...item }));
                 renderMenu();
+                if (currentAdmin) renderAdminMenu();
+                document.getElementById('menuItemsCount').innerHTML = menu.length;
                 return;
             }
             
             if (data && data.length > 0) {
-                menu = data.map(item => ({
-                    id: item.id,
+                // Convert Supabase data to menu format with numeric IDs
+                menu = data.map((item, index) => ({
+                    id: index + 1,  // ← Convert UUID to number!
+                    uuid: item.id,   // Keep original UUID for database operations
                     name: item.name,
-                    description: item.description,
+                    description: item.description || '',
                     price: parseFloat(item.price),
-                    image: item.image_url
+                    image: item.image_url || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)
                 }));
             } else {
-                menu = [...defaultMenu];
+                // No data in Supabase, use default
+                menu = defaultMenu.map(item => ({ ...item }));
             }
             
             renderMenu();
             if (currentAdmin) renderAdminMenu();
             document.getElementById('menuItemsCount').innerHTML = menu.length;
         } catch (e) {
-            console.error('Error:', e);
-            menu = [...defaultMenu];
+            console.error('Error loading menu:', e);
+            menu = defaultMenu.map(item => ({ ...item }));
             renderMenu();
+            if (currentAdmin) renderAdminMenu();
+            document.getElementById('menuItemsCount').innerHTML = menu.length;
         }
     }
 
-    // Save order
+    // Save order to Supabase
     async function saveOrder(orderData) {
         try {
             const subtotal = orderData.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
             const deliveryFee = 10;
             const total = subtotal + deliveryFee;
+            
+            // Convert cart items to format for Supabase
+            const itemsForDB = orderData.items.map(item => ({
+                id: item.uuid || item.id,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity
+            }));
             
             const { data, error } = await supabase
                 .from('orders')
@@ -323,7 +339,7 @@
                     customer_phone: orderData.phone,
                     delivery_address: orderData.address,
                     landmark: orderData.landmark || '',
-                    items: orderData.items,
+                    items: itemsForDB,
                     subtotal: subtotal,
                     delivery_fee: deliveryFee,
                     total: total,
@@ -574,7 +590,7 @@
                     <h3>${escapeHtml(item.name)}</h3>
                     <p>${escapeHtml(item.description || '')}</p>
                     <div class="price">ZMW ${item.price}</div>
-                    <button class="add-btn" onclick="addToCart('${item.id}')">+ Add to Cart</button>
+                    <button class="add-btn" onclick="addToCart(${item.id})">+ Add to Cart</button>
                 </div>
             </div>
         `).join('');
@@ -589,15 +605,15 @@
         }
         container.innerHTML = menu.map(item => `
             <div class="menu-card admin-mode" style="margin-bottom: 12px; position:relative;">
-                <div class="admin-badge">ID: ${item.id.substring(0, 8)}</div>
+                <div class="admin-badge">ID: ${item.id}</div>
                 <img src="${item.image || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)}" class="menu-img" alt="${item.name}" style="height: 100px;" onerror="this.src='https://via.placeholder.com/400x300?text=${encodeURIComponent(item.name)}'">
                 <div class="menu-info">
                     <h3>${escapeHtml(item.name)}</h3>
                     <p>${escapeHtml(item.description || '')}</p>
                     <div class="price">ZMW ${item.price}</div>
                     <div style="display: flex; gap: 8px;">
-                        <button class="edit-btn" onclick="showEditMenuItemModal('${item.id}')">✏️ Edit</button>
-                        <button class="delete-btn" onclick="deleteMenuItem('${item.id}')">🗑️ Delete</button>
+                        <button class="edit-btn" onclick="showEditMenuItemModal(${item.id})">✏️ Edit</button>
+                        <button class="delete-btn" onclick="deleteMenuItem(${item.id})">🗑️ Delete</button>
                     </div>
                 </div>
             </div>
@@ -659,7 +675,13 @@
         }
         
         if (editId) {
-            await updateFoodItemInDB(editId, name, description, price, image);
+            // Find the item to get its UUID
+            const item = menu.find(i => i.id === parseInt(editId));
+            if (item && item.uuid) {
+                await updateFoodItemInDB(item.uuid, name, description, price, image);
+            } else {
+                showToast('❌ Item not found');
+            }
         } else {
             await addFoodItemToDB(name, description, price, image);
         }
@@ -668,7 +690,16 @@
 
     async function deleteMenuItem(id) {
         if (confirm('Delete this item?')) {
-            await deleteFoodItemFromDB(id);
+            const item = menu.find(i => i.id === id);
+            if (item && item.uuid) {
+                await deleteFoodItemFromDB(item.uuid);
+            } else {
+                // If no UUID (default menu), just remove from local menu
+                menu = menu.filter(i => i.id !== id);
+                renderMenu();
+                if (currentAdmin) renderAdminMenu();
+                showToast('🗑️ Item deleted');
+            }
         }
     }
 
@@ -893,9 +924,14 @@
 
     // ============ CUSTOMER FUNCTIONS ============
     
+    // FIXED: addToCart now correctly finds items by numeric ID
     function addToCart(id) {
         const item = menu.find(i => i.id === id);
-        if (!item) return;
+        if (!item) {
+            console.error('Item not found with ID:', id);
+            showToast('❌ Item not found');
+            return;
+        }
         const existing = cart.find(i => i.id === id);
         if (existing) {
             existing.quantity++;
@@ -922,7 +958,7 @@
             return `
                 <div class="cart-item">
                     <div><b>${escapeHtml(item.name)}</b> x${item.quantity}<br><small>ZMW ${item.price}</small></div>
-                    <div>ZMW ${itemTotal} <button onclick="removeFromCart('${item.id}')" style="background:#ff4444; border:none; color:white; padding:4px 10px; border-radius:20px; margin-left:8px">×</button></div>
+                    <div>ZMW ${itemTotal} <button onclick="removeFromCart(${item.id})" style="background:#ff4444; border:none; color:white; padding:4px 10px; border-radius:20px; margin-left:8px">×</button></div>
                 </div>
             `;
         }).join('');
@@ -949,7 +985,7 @@
         const phone = document.getElementById('phone').value;
         const address = document.getElementById('address').value;
         if (!phone || phone.length < 9) {
-            showToast('❌ Enter valid phone number');
+            showToast('❌ Enter valid phone number (e.g., 0971234567)');
             return;
         }
         if (!address) {
@@ -998,6 +1034,22 @@
                         </div>
                     `;
                     if (updated.status === 'delivered') clearInterval(trackInterval);
+                }
+                
+                const myOrders = await getCustomerOrders(phone);
+                const historyDiv = document.getElementById('orderHistoryList');
+                if (historyDiv) {
+                    if (myOrders.length === 0) {
+                        historyDiv.innerHTML = '<p style="color:#999">No orders yet</p>';
+                    } else {
+                        historyDiv.innerHTML = myOrders.map(order => `
+                            <div class="order-card">
+                                <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                                <div>${new Date(order.created_at).toLocaleString()} | ZMW ${order.total}</div>
+                                <div>${order.items ? order.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : ''}</div>
+                            </div>
+                        `).join('');
+                    }
                 }
             }, 3000);
         }
