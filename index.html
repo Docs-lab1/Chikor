@@ -67,6 +67,8 @@
         .modal-buttons button:last-child { background: #ccc; }
         .delivery-movement { background: #4CAF50; color: white; padding: 4px 8px; border-radius: 20px; font-size: 0.7rem; display: inline-block; }
         .admin-badge { position: absolute; top: 5px; right: 5px; background: #E85D04; color: white; padding: 2px 6px; border-radius: 10px; font-size: 0.6rem; z-index: 1; }
+        .loading-text { text-align: center; padding: 40px 20px; color: #999; }
+        .loading-text i { font-size: 2rem; display: block; margin-bottom: 10px; }
     </style>
 </head>
 <body>
@@ -84,7 +86,12 @@
     <div class="main-content">
         <!-- HOME PAGE -->
         <div id="homePage" class="page active">
-            <div class="menu-grid" id="menuGrid"></div>
+            <div id="menuGrid" class="menu-grid">
+                <div class="loading-text">
+                    <i class="fas fa-utensils"></i>
+                    <p>Loading menu...</p>
+                </div>
+            </div>
         </div>
 
         <!-- CART PAGE -->
@@ -256,8 +263,8 @@
     const KASAMA_CENTER = [-10.2129, 31.1809];
     const ADMIN_PASSWORD = "admin123";
 
-    // ============ DEFAULT MENU (Fallback if Supabase fails) ============
-    const defaultMenu = [
+    // ============ HARDCODED MENU (ALWAYS WORKS!) ============
+    const HARDCODED_MENU = [
         { id: 1, name: "Nshima with Chicken", description: "Traditional nshima + grilled chicken + rape", price: 45, image: "https://i.imgur.com/7ZqFq6R.jpg" },
         { id: 2, name: "Beef Burger", description: "Zambian beef patty with chips", price: 35, image: "https://i.imgur.com/8YqGq7S.jpg" },
         { id: 3, name: "Pizza Special", description: "Loaded with sausage, peppers & cheese", price: 60, image: "https://i.imgur.com/9XqHq8T.jpg" },
@@ -269,309 +276,45 @@
         { id: 9, name: "Coca Cola", description: "Chilled soft drink", price: 12, image: "https://i.imgur.com/1XqHq0M.jpg" }
     ];
 
-    // ============ DATABASE FUNCTIONS ============
-    
-    // Load menu from Supabase
+    // ============ LOAD MENU ============
     async function loadMenu() {
         try {
+            // Try to load from Supabase
             const { data, error } = await supabase
                 .from('foods')
                 .select('*')
                 .eq('is_available', true)
-                .order('created_at');
+                .limit(20);
             
-            if (error) {
-                console.error('Error loading menu from Supabase:', error);
-                // Use default menu if Supabase fails
-                menu = defaultMenu.map(item => ({ ...item }));
-                renderMenu();
-                if (currentAdmin) renderAdminMenu();
-                document.getElementById('menuItemsCount').innerHTML = menu.length;
-                return;
-            }
-            
-            if (data && data.length > 0) {
-                // Convert Supabase data to menu format with numeric IDs
+            if (error || !data || data.length === 0) {
+                // If Supabase fails, use hardcoded menu
+                console.log('Using hardcoded menu (Supabase empty or error)');
+                menu = HARDCODED_MENU.map(item => ({ ...item }));
+            } else {
+                // Convert Supabase data to menu format
                 menu = data.map((item, index) => ({
-                    id: index + 1,  // ← Convert UUID to number!
-                    uuid: item.id,   // Keep original UUID for database operations
+                    id: index + 1,
+                    uuid: item.id,
                     name: item.name,
                     description: item.description || '',
                     price: parseFloat(item.price),
                     image: item.image_url || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)
                 }));
-            } else {
-                // No data in Supabase, use default
-                menu = defaultMenu.map(item => ({ ...item }));
+                // If no data from Supabase, use hardcoded
+                if (menu.length === 0) {
+                    menu = HARDCODED_MENU.map(item => ({ ...item }));
+                }
             }
-            
-            renderMenu();
-            if (currentAdmin) renderAdminMenu();
-            document.getElementById('menuItemsCount').innerHTML = menu.length;
         } catch (e) {
             console.error('Error loading menu:', e);
-            menu = defaultMenu.map(item => ({ ...item }));
-            renderMenu();
-            if (currentAdmin) renderAdminMenu();
-            document.getElementById('menuItemsCount').innerHTML = menu.length;
+            // ALWAYS fall back to hardcoded menu
+            menu = HARDCODED_MENU.map(item => ({ ...item }));
         }
-    }
-
-    // Save order to Supabase
-    async function saveOrder(orderData) {
-        try {
-            const subtotal = orderData.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
-            const deliveryFee = 10;
-            const total = subtotal + deliveryFee;
-            
-            // Convert cart items to format for Supabase
-            const itemsForDB = orderData.items.map(item => ({
-                id: item.uuid || item.id,
-                name: item.name,
-                price: item.price,
-                quantity: item.quantity
-            }));
-            
-            const { data, error } = await supabase
-                .from('orders')
-                .insert([{
-                    customer_name: orderData.customer_name || orderData.phone,
-                    customer_phone: orderData.phone,
-                    delivery_address: orderData.address,
-                    landmark: orderData.landmark || '',
-                    items: itemsForDB,
-                    subtotal: subtotal,
-                    delivery_fee: deliveryFee,
-                    total: total,
-                    payment_method: orderData.paymentMethod,
-                    status: 'pending',
-                    customer_location_lat: orderData.customerLocation?.lat || null,
-                    customer_location_lng: orderData.customerLocation?.lng || null
-                }])
-                .select();
-            
-            if (error) {
-                console.error('Error saving order:', error);
-                showToast('❌ Failed to place order');
-                return null;
-            }
-            return data[0];
-        } catch (e) {
-            console.error('Error:', e);
-            showToast('❌ Error placing order');
-            return null;
-        }
-    }
-
-    // Get all orders
-    async function getAllOrders() {
-        try {
-            const { data, error } = await supabase
-                .from('orders')
-                .select('*')
-                .order('created_at', { ascending: false });
-            
-            if (error) return [];
-            return data;
-        } catch (e) {
-            return [];
-        }
-    }
-
-    // Get orders by customer phone
-    async function getCustomerOrders(phone) {
-        try {
-            const { data, error } = await supabase
-                .from('orders')
-                .select('*')
-                .eq('customer_phone', phone)
-                .order('created_at', { ascending: false });
-            
-            if (error) return [];
-            return data;
-        } catch (e) {
-            return [];
-        }
-    }
-
-    // Update order status
-    async function updateOrderStatus(orderId, status, deliveryGirlName = null, deliveryGirlId = null) {
-        try {
-            const updateData = { status: status, updated_at: new Date() };
-            if (deliveryGirlName) updateData.delivery_girl_name = deliveryGirlName;
-            if (deliveryGirlId) updateData.delivery_girl_id = deliveryGirlId;
-            
-            const { error } = await supabase
-                .from('orders')
-                .update(updateData)
-                .eq('id', orderId);
-            
-            return !error;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // Get available orders
-    async function getAvailableOrders() {
-        try {
-            const { data, error } = await supabase
-                .from('orders')
-                .select('*')
-                .eq('status', 'pending')
-                .order('created_at', { ascending: true });
-            
-            if (error) return [];
-            return data;
-        } catch (e) {
-            return [];
-        }
-    }
-
-    // Get delivery girl's orders
-    async function getDeliveryGirlOrders(deliveryGirlName) {
-        try {
-            const { data, error } = await supabase
-                .from('orders')
-                .select('*')
-                .eq('delivery_girl_name', deliveryGirlName)
-                .in('status', ['accepted', 'delivering'])
-                .order('created_at', { ascending: false });
-            
-            if (error) return [];
-            return data;
-        } catch (e) {
-            return [];
-        }
-    }
-
-    // Verify delivery girl
-    async function verifyDeliveryGirlSupabase(name, pin) {
-        try {
-            const { data, error } = await supabase
-                .from('delivery_girls')
-                .select('*')
-                .eq('name', name)
-                .eq('pin', pin)
-                .eq('is_active', true);
-            
-            if (error || !data || data.length === 0) return null;
-            return data[0];
-        } catch (e) {
-            return null;
-        }
-    }
-
-    // Get all delivery girls
-    async function getAllDeliveryGirls() {
-        try {
-            const { data, error } = await supabase
-                .from('delivery_girls')
-                .select('*')
-                .eq('is_active', true);
-            
-            if (error) return [];
-            return data;
-        } catch (e) {
-            return [];
-        }
-    }
-
-    // Add delivery girl
-    async function addDeliveryGirlToDB(name, pin, phone) {
-        try {
-            const { error } = await supabase
-                .from('delivery_girls')
-                .insert([{
-                    name: name,
-                    pin: pin,
-                    phone: phone || '0970000000',
-                    vehicle_number: 'MOTO-001'
-                }]);
-            return !error;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // Delete delivery girl
-    async function deleteDeliveryGirlFromDB(id) {
-        try {
-            const { error } = await supabase
-                .from('delivery_girls')
-                .update({ is_active: false })
-                .eq('id', id);
-            return !error;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // Add food item
-    async function addFoodItemToDB(name, description, price, imageUrl) {
-        try {
-            const { error } = await supabase
-                .from('foods')
-                .insert([{
-                    name: name,
-                    description: description,
-                    price: price,
-                    image_url: imageUrl || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(name),
-                    is_available: true
-                }]);
-            
-            if (!error) {
-                await loadMenu();
-                showToast('✅ Food item added!');
-                return true;
-            }
-            return false;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // Update food item
-    async function updateFoodItemInDB(id, name, description, price, imageUrl) {
-        try {
-            const { error } = await supabase
-                .from('foods')
-                .update({
-                    name: name,
-                    description: description,
-                    price: price,
-                    image_url: imageUrl
-                })
-                .eq('id', id);
-            
-            if (!error) {
-                await loadMenu();
-                showToast('✅ Food item updated!');
-                return true;
-            }
-            return false;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // Delete food item
-    async function deleteFoodItemFromDB(id) {
-        try {
-            const { error } = await supabase
-                .from('foods')
-                .update({ is_available: false })
-                .eq('id', id);
-            
-            if (!error) {
-                await loadMenu();
-                showToast('🗑️ Food item deleted!');
-                return true;
-            }
-            return false;
-        } catch (e) {
-            return false;
-        }
+        
+        // Render the menu
+        renderMenu();
+        if (currentAdmin) renderAdminMenu();
+        document.getElementById('menuItemsCount').innerHTML = menu.length;
     }
 
     // ============ RENDER FUNCTIONS ============
@@ -579,13 +322,18 @@
     function renderMenu() {
         const container = document.getElementById('menuGrid');
         if (!container) return;
+        
         if (!menu || menu.length === 0) {
-            container.innerHTML = '<p style="text-align:center; color:#999;">No items available</p>';
+            container.innerHTML = '<p style="text-align:center; color:#999; padding:40px 0;">No items available</p>';
             return;
         }
+        
         container.innerHTML = menu.map(item => `
             <div class="menu-card">
-                <img src="${item.image || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)}" class="menu-img" alt="${item.name}" onerror="this.src='https://via.placeholder.com/400x300?text=${encodeURIComponent(item.name)}'">
+                <img src="${item.image || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)}" 
+                     class="menu-img" 
+                     alt="${item.name}" 
+                     onerror="this.src='https://via.placeholder.com/400x300?text=${encodeURIComponent(item.name)}'">
                 <div class="menu-info">
                     <h3>${escapeHtml(item.name)}</h3>
                     <p>${escapeHtml(item.description || '')}</p>
@@ -606,7 +354,11 @@
         container.innerHTML = menu.map(item => `
             <div class="menu-card admin-mode" style="margin-bottom: 12px; position:relative;">
                 <div class="admin-badge">ID: ${item.id}</div>
-                <img src="${item.image || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)}" class="menu-img" alt="${item.name}" style="height: 100px;" onerror="this.src='https://via.placeholder.com/400x300?text=${encodeURIComponent(item.name)}'">
+                <img src="${item.image || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)}" 
+                     class="menu-img" 
+                     alt="${item.name}" 
+                     style="height: 100px;" 
+                     onerror="this.src='https://via.placeholder.com/400x300?text=${encodeURIComponent(item.name)}'">
                 <div class="menu-info">
                     <h3>${escapeHtml(item.name)}</h3>
                     <p>${escapeHtml(item.description || '')}</p>
@@ -630,97 +382,106 @@
         });
     }
 
-    // ============ MODAL FUNCTIONS ============
-    function showAddMenuItemModal() {
-        document.getElementById('modalTitle').innerText = 'Add New Food Item';
-        document.getElementById('itemName').value = '';
-        document.getElementById('itemDesc').value = '';
-        document.getElementById('itemPrice').value = '';
-        document.getElementById('itemImage').value = '';
-        document.getElementById('editItemId').value = '';
-        document.getElementById('menuModal').style.display = 'flex';
-    }
-
-    function showEditMenuItemModal(id) {
-        const item = menu.find(i => i.id === id);
-        if (item) {
-            document.getElementById('modalTitle').innerText = 'Edit Food Item';
-            document.getElementById('itemName').value = item.name;
-            document.getElementById('itemDesc').value = item.description || '';
-            document.getElementById('itemPrice').value = item.price;
-            document.getElementById('itemImage').value = item.image || '';
-            document.getElementById('editItemId').value = id;
-            document.getElementById('menuModal').style.display = 'flex';
-        }
-    }
-
-    function closeModal() {
-        document.getElementById('menuModal').style.display = 'none';
-    }
-
-    async function saveMenuItem() {
-        const name = document.getElementById('itemName').value.trim();
-        const description = document.getElementById('itemDesc').value.trim();
-        const price = parseFloat(document.getElementById('itemPrice').value);
-        let image = document.getElementById('itemImage').value.trim();
-        const editId = document.getElementById('editItemId').value;
+    // ============ ADD TO CART (FIXED) ============
+    function addToCart(id) {
+        console.log('Adding item with ID:', id);
+        console.log('Current menu:', menu);
         
-        if (!name || isNaN(price) || price <= 0) {
-            showToast('❌ Please fill valid name and price');
+        const item = menu.find(i => i.id === id);
+        if (!item) {
+            console.error('Item not found with ID:', id);
+            showToast('❌ Item not found');
             return;
         }
         
-        if (!image) {
-            image = 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(name);
-        }
-        
-        if (editId) {
-            // Find the item to get its UUID
-            const item = menu.find(i => i.id === parseInt(editId));
-            if (item && item.uuid) {
-                await updateFoodItemInDB(item.uuid, name, description, price, image);
-            } else {
-                showToast('❌ Item not found');
-            }
+        const existing = cart.find(i => i.id === id);
+        if (existing) {
+            existing.quantity++;
         } else {
-            await addFoodItemToDB(name, description, price, image);
+            cart.push({ ...item, quantity: 1 });
         }
-        closeModal();
+        renderCart();
+        showToast(`✅ ${item.name} added to cart`);
     }
 
-    async function deleteMenuItem(id) {
-        if (confirm('Delete this item?')) {
-            const item = menu.find(i => i.id === id);
-            if (item && item.uuid) {
-                await deleteFoodItemFromDB(item.uuid);
+    function renderCart() {
+        const container = document.getElementById('cartItemsList');
+        const totalElem = document.getElementById('cartTotal');
+        if (!container) return;
+        if (cart.length === 0) {
+            container.innerHTML = '<p style="text-align:center; color:#999;">Cart is empty</p>';
+            totalElem.innerHTML = 'Total: ZMW 0.00';
+            return;
+        }
+        let total = 0;
+        container.innerHTML = cart.map(item => {
+            const itemTotal = item.price * item.quantity;
+            total += itemTotal;
+            return `
+                <div class="cart-item">
+                    <div><b>${escapeHtml(item.name)}</b> x${item.quantity}<br><small>ZMW ${item.price}</small></div>
+                    <div>ZMW ${itemTotal} <button onclick="removeFromCart(${item.id})" style="background:#ff4444; border:none; color:white; padding:4px 10px; border-radius:20px; margin-left:8px">×</button></div>
+                </div>
+            `;
+        }).join('');
+        totalElem.innerHTML = `Total: ZMW ${total.toFixed(2)}`;
+    }
+
+    function removeFromCart(id) {
+        const index = cart.findIndex(i => i.id === id);
+        if (index !== -1) {
+            if (cart[index].quantity > 1) {
+                cart[index].quantity--;
             } else {
-                // If no UUID (default menu), just remove from local menu
-                menu = menu.filter(i => i.id !== id);
-                renderMenu();
-                if (currentAdmin) renderAdminMenu();
-                showToast('🗑️ Item deleted');
+                cart.splice(index, 1);
             }
+            renderCart();
+        }
+    }
+
+    // ============ ADMIN FUNCTIONS ============
+    
+    function loginAdmin() {
+        const password = document.getElementById('adminPassword').value;
+        if (password === ADMIN_PASSWORD) {
+            currentAdmin = true;
+            document.getElementById('adminLogin').style.display = 'none';
+            document.getElementById('adminDashboard').style.display = 'block';
+            loadDeliveryGirls();
+            loadAllOrdersAdmin();
+            renderAdminMenu();
+            showToast('✅ Admin logged in!');
+        } else {
+            showToast('❌ Wrong password');
         }
     }
 
     // ============ DELIVERY GIRL FUNCTIONS ============
     
     async function loadDeliveryGirls() {
-        const girls = await getAllDeliveryGirls();
-        const container = document.getElementById('deliveryGirlsList');
-        if (container && currentAdmin) {
-            if (girls.length === 0) {
-                container.innerHTML = '<p style="color:#999">No delivery girls added yet</p>';
-            } else {
-                container.innerHTML = girls.map(girl => `
-                    <div class="delivery-girl-card">
-                        <div><strong>${escapeHtml(girl.name)}</strong> (PIN: ${girl.pin})<br><small>${girl.phone}</small></div>
-                        <button class="delete-btn" onclick="deleteDeliveryGirl('${girl.id}')">Delete</button>
-                    </div>
-                `).join('');
+        try {
+            const { data, error } = await supabase
+                .from('delivery_girls')
+                .select('*')
+                .eq('is_active', true);
+            
+            const girls = error ? [] : data;
+            const container = document.getElementById('deliveryGirlsList');
+            if (container && currentAdmin) {
+                if (girls.length === 0) {
+                    container.innerHTML = '<p style="color:#999">No delivery girls added yet</p>';
+                } else {
+                    container.innerHTML = girls.map(girl => `
+                        <div class="delivery-girl-card">
+                            <div><strong>${escapeHtml(girl.name)}</strong> (PIN: ${girl.pin})<br><small>${girl.phone}</small></div>
+                            <button class="delete-btn" onclick="deleteDeliveryGirl('${girl.id}')">Delete</button>
+                        </div>
+                    `).join('');
+                }
             }
+        } catch (e) {
+            console.log('Error loading delivery girls:', e);
         }
-        return girls;
     }
 
     async function addDeliveryGirl() {
@@ -730,29 +491,165 @@
             showToast('❌ Enter name and PIN');
             return;
         }
-        const success = await addDeliveryGirlToDB(name, pin);
-        if (success) {
+        try {
+            const { error } = await supabase
+                .from('delivery_girls')
+                .insert([{ name, pin, phone: '0970000000', vehicle_number: 'MOTO-001', is_active: true }]);
+            
+            if (error) {
+                showToast('❌ Failed to add delivery girl');
+                return;
+            }
             showToast(`✅ Delivery girl ${name} added! PIN: ${pin}`);
             document.getElementById('newGirlName').value = '';
             document.getElementById('newGirlPin').value = '';
             loadDeliveryGirls();
-        } else {
-            showToast('❌ Failed to add delivery girl');
+        } catch (e) {
+            showToast('❌ Error adding delivery girl');
         }
     }
 
     async function deleteDeliveryGirl(id) {
-        if (confirm('Delete this delivery girl?')) {
-            const success = await deleteDeliveryGirlFromDB(id);
-            if (success) {
+        if (!confirm('Delete this delivery girl?')) return;
+        try {
+            const { error } = await supabase
+                .from('delivery_girls')
+                .update({ is_active: false })
+                .eq('id', id);
+            
+            if (!error) {
                 showToast('✅ Delivery girl deleted');
                 loadDeliveryGirls();
             }
+        } catch (e) {
+            showToast('❌ Error deleting');
+        }
+    }
+
+    async function verifyDeliveryGirlSupabase(name, pin) {
+        try {
+            const { data, error } = await supabase
+                .from('delivery_girls')
+                .select('*')
+                .eq('name', name)
+                .eq('pin', pin)
+                .eq('is_active', true);
+            
+            if (error || !data || data.length === 0) return null;
+            return data[0];
+        } catch (e) {
+            return null;
         }
     }
 
     // ============ ORDER FUNCTIONS ============
     
+    async function saveOrder(orderData) {
+        try {
+            const subtotal = orderData.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+            const total = subtotal + 10; // + delivery fee
+            
+            const { data, error } = await supabase
+                .from('orders')
+                .insert([{
+                    customer_name: orderData.customer_name || orderData.phone,
+                    customer_phone: orderData.phone,
+                    delivery_address: orderData.address,
+                    landmark: orderData.landmark || '',
+                    items: orderData.items,
+                    subtotal: subtotal,
+                    delivery_fee: 10,
+                    total: total,
+                    payment_method: orderData.paymentMethod,
+                    status: 'pending',
+                    customer_location_lat: orderData.customerLocation?.lat || null,
+                    customer_location_lng: orderData.customerLocation?.lng || null
+                }])
+                .select();
+            
+            if (error) {
+                console.error('Error saving order:', error);
+                showToast('❌ Failed to place order');
+                return null;
+            }
+            return data[0];
+        } catch (e) {
+            console.error('Error:', e);
+            showToast('❌ Error placing order');
+            return null;
+        }
+    }
+
+    async function getAllOrders() {
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .order('created_at', { ascending: false });
+            return error ? [] : data;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    async function getCustomerOrders(phone) {
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('customer_phone', phone)
+                .order('created_at', { ascending: false });
+            return error ? [] : data;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    async function updateOrderStatus(orderId, status, deliveryGirlName = null, deliveryGirlId = null) {
+        try {
+            const updateData = { status: status, updated_at: new Date() };
+            if (deliveryGirlName) updateData.delivery_girl_name = deliveryGirlName;
+            if (deliveryGirlId) updateData.delivery_girl_id = deliveryGirlId;
+            
+            const { error } = await supabase
+                .from('orders')
+                .update(updateData)
+                .eq('id', orderId);
+            
+            return !error;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function getAvailableOrders() {
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('status', 'pending')
+                .order('created_at', { ascending: true });
+            return error ? [] : data;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    async function getDeliveryGirlOrders(deliveryGirlName) {
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('delivery_girl_name', deliveryGirlName)
+                .in('status', ['accepted', 'delivering'])
+                .order('created_at', { ascending: false });
+            return error ? [] : data;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // ============ LOAD ORDERS ============
     async function loadAvailableOrders() {
         const orders = await getAvailableOrders();
         const container = document.getElementById('availableOrdersList');
@@ -811,11 +708,6 @@
         if (success) {
             showToast('🚚 Delivery started!');
             loadMyDeliveries();
-            const orders = await getAllOrders();
-            const order = orders.find(o => o.id === orderId);
-            if (order && order.delivery_address) {
-                window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address + ', Kasama, Zambia')}`, '_blank');
-            }
         }
     }
 
@@ -829,23 +721,53 @@
         }
     }
 
-    // ============ ADMIN FUNCTIONS ============
-    
-    function loginAdmin() {
-        const password = document.getElementById('adminPassword').value;
-        if (password === ADMIN_PASSWORD) {
-            currentAdmin = true;
-            document.getElementById('adminLogin').style.display = 'none';
-            document.getElementById('adminDashboard').style.display = 'block';
-            loadDeliveryGirls();
-            loadAllOrdersAdmin();
-            renderAdminMenu();
-            showToast('✅ Admin logged in!');
-        } else {
-            showToast('❌ Wrong password');
+    // ============ PLACE ORDER ============
+    async function placeOrder() {
+        if (cart.length === 0) {
+            showToast('❌ Cart is empty');
+            return;
+        }
+        const phone = document.getElementById('phone').value;
+        const address = document.getElementById('address').value;
+        if (!phone || phone.length < 9) {
+            showToast('❌ Enter valid phone number');
+            return;
+        }
+        if (!address) {
+            showToast('❌ Enter address or use GPS');
+            return;
+        }
+        
+        const payment = document.querySelector('input[name="payment"]:checked').value;
+        const orderData = {
+            customer_name: phone,
+            phone: phone,
+            address: address,
+            landmark: document.getElementById('landmark').value,
+            items: JSON.parse(JSON.stringify(cart)),
+            paymentMethod: payment,
+            customerLocation: currentCustomerLocation
+        };
+        
+        const order = await saveOrder(orderData);
+        if (order) {
+            showToast('✅ Order placed!');
+            cart = [];
+            renderCart();
+            document.getElementById('phone').value = '';
+            document.getElementById('address').value = '';
+            navigateTo('track');
+            
+            document.getElementById('trackingStatus').innerHTML = `
+                <div class="order-card">
+                    <h4>✅ Order Confirmed!</h4>
+                    <p>Waiting for a delivery girl...</p>
+                </div>
+            `;
         }
     }
 
+    // ============ ADMIN ORDERS ============
     async function loadAllOrdersAdmin() {
         const orders = await getAllOrders();
         const total = orders.reduce((sum, o) => sum + (o.total || 0), 0);
@@ -862,7 +784,6 @@
                         <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
                         <div>📞 ${order.customer_phone}</div>
                         <div>📍 ${(order.delivery_address || 'N/A').substring(0, 50)}</div>
-                        <div>🍽️ ${order.items ? order.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : ''}</div>
                         <div>💰 ZMW ${order.total} | ${order.payment_method}</div>
                         <div>📅 ${new Date(order.created_at).toLocaleString()}</div>
                         ${order.delivery_girl_name ? `<div>👧 Delivery: ${order.delivery_girl_name}</div>` : ''}
@@ -922,141 +843,109 @@
         }
     }
 
-    // ============ CUSTOMER FUNCTIONS ============
-    
-    // FIXED: addToCart now correctly finds items by numeric ID
-    function addToCart(id) {
+    // ============ MODAL FUNCTIONS ============
+    function showAddMenuItemModal() {
+        document.getElementById('modalTitle').innerText = 'Add New Food Item';
+        document.getElementById('itemName').value = '';
+        document.getElementById('itemDesc').value = '';
+        document.getElementById('itemPrice').value = '';
+        document.getElementById('itemImage').value = '';
+        document.getElementById('editItemId').value = '';
+        document.getElementById('menuModal').style.display = 'flex';
+    }
+
+    function showEditMenuItemModal(id) {
         const item = menu.find(i => i.id === id);
-        if (!item) {
-            console.error('Item not found with ID:', id);
-            showToast('❌ Item not found');
-            return;
-        }
-        const existing = cart.find(i => i.id === id);
-        if (existing) {
-            existing.quantity++;
-        } else {
-            cart.push({ ...item, quantity: 1 });
-        }
-        renderCart();
-        showToast(`✅ ${item.name} added to cart`);
-    }
-
-    function renderCart() {
-        const container = document.getElementById('cartItemsList');
-        const totalElem = document.getElementById('cartTotal');
-        if (!container) return;
-        if (cart.length === 0) {
-            container.innerHTML = '<p style="text-align:center; color:#999;">Cart is empty</p>';
-            totalElem.innerHTML = 'Total: ZMW 0.00';
-            return;
-        }
-        let total = 0;
-        container.innerHTML = cart.map(item => {
-            const itemTotal = item.price * item.quantity;
-            total += itemTotal;
-            return `
-                <div class="cart-item">
-                    <div><b>${escapeHtml(item.name)}</b> x${item.quantity}<br><small>ZMW ${item.price}</small></div>
-                    <div>ZMW ${itemTotal} <button onclick="removeFromCart(${item.id})" style="background:#ff4444; border:none; color:white; padding:4px 10px; border-radius:20px; margin-left:8px">×</button></div>
-                </div>
-            `;
-        }).join('');
-        totalElem.innerHTML = `Total: ZMW ${total.toFixed(2)}`;
-    }
-
-    function removeFromCart(id) {
-        const index = cart.findIndex(i => i.id === id);
-        if (index !== -1) {
-            if (cart[index].quantity > 1) {
-                cart[index].quantity--;
-            } else {
-                cart.splice(index, 1);
-            }
-            renderCart();
+        if (item) {
+            document.getElementById('modalTitle').innerText = 'Edit Food Item';
+            document.getElementById('itemName').value = item.name;
+            document.getElementById('itemDesc').value = item.description || '';
+            document.getElementById('itemPrice').value = item.price;
+            document.getElementById('itemImage').value = item.image || '';
+            document.getElementById('editItemId').value = id;
+            document.getElementById('menuModal').style.display = 'flex';
         }
     }
 
-    async function placeOrder() {
-        if (cart.length === 0) {
-            showToast('❌ Cart is empty');
-            return;
-        }
-        const phone = document.getElementById('phone').value;
-        const address = document.getElementById('address').value;
-        if (!phone || phone.length < 9) {
-            showToast('❌ Enter valid phone number (e.g., 0971234567)');
-            return;
-        }
-        if (!address) {
-            showToast('❌ Enter address or use GPS');
+    function closeModal() {
+        document.getElementById('menuModal').style.display = 'none';
+    }
+
+    async function saveMenuItem() {
+        const name = document.getElementById('itemName').value.trim();
+        const description = document.getElementById('itemDesc').value.trim();
+        const price = parseFloat(document.getElementById('itemPrice').value);
+        let image = document.getElementById('itemImage').value.trim();
+        const editId = document.getElementById('editItemId').value;
+        
+        if (!name || isNaN(price) || price <= 0) {
+            showToast('❌ Please fill valid name and price');
             return;
         }
         
-        const payment = document.querySelector('input[name="payment"]:checked').value;
-        const orderData = {
-            customer_name: phone,
-            phone: phone,
-            address: address,
-            landmark: document.getElementById('landmark').value,
-            items: JSON.parse(JSON.stringify(cart)),
-            paymentMethod: payment,
-            customerLocation: currentCustomerLocation
-        };
+        if (!image) {
+            image = 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(name);
+        }
         
-        const order = await saveOrder(orderData);
-        if (order) {
-            showToast('✅ Order placed!');
-            cart = [];
-            renderCart();
-            document.getElementById('phone').value = '';
-            document.getElementById('address').value = '';
-            navigateTo('track');
-            
-            document.getElementById('trackingStatus').innerHTML = `
-                <div class="order-card">
-                    <h4>✅ Order Confirmed!</h4>
-                    <p>Waiting for a delivery girl...</p>
-                    <p>Order: ${order.order_number || order.id}</p>
-                </div>
-            `;
-            
-            const trackInterval = setInterval(async () => {
-                const orders = await getCustomerOrders(phone);
-                const updated = orders.find(o => o.id === order.id);
-                if (updated) {
-                    document.getElementById('trackingStatus').innerHTML = `
-                        <div class="order-card">
-                            <h4>🛵 Order ${updated.order_number || updated.id}</h4>
-                            <p>Status: <span class="status-badge status-${updated.status}">${updated.status.toUpperCase()}</span></p>
-                            ${updated.delivery_girl_name ? `<p>👧 Delivery Girl: ${updated.delivery_girl_name}</p>` : ''}
-                            ${updated.status === 'delivered' ? '<p>🎉 Delivered! Enjoy!</p>' : ''}
-                        </div>
-                    `;
-                    if (updated.status === 'delivered') clearInterval(trackInterval);
-                }
-                
-                const myOrders = await getCustomerOrders(phone);
-                const historyDiv = document.getElementById('orderHistoryList');
-                if (historyDiv) {
-                    if (myOrders.length === 0) {
-                        historyDiv.innerHTML = '<p style="color:#999">No orders yet</p>';
-                    } else {
-                        historyDiv.innerHTML = myOrders.map(order => `
-                            <div class="order-card">
-                                <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
-                                <div>${new Date(order.created_at).toLocaleString()} | ZMW ${order.total}</div>
-                                <div>${order.items ? order.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : ''}</div>
-                            </div>
-                        `).join('');
+        try {
+            if (editId) {
+                // Update existing item
+                const item = menu.find(i => i.id === parseInt(editId));
+                if (item && item.uuid) {
+                    const { error } = await supabase
+                        .from('foods')
+                        .update({ name, description, price, image_url: image })
+                        .eq('id', item.uuid);
+                    
+                    if (!error) {
+                        await loadMenu();
+                        showToast('✅ Food item updated!');
                     }
                 }
-            }, 3000);
+            } else {
+                // Add new item
+                const { error } = await supabase
+                    .from('foods')
+                    .insert([{ name, description, price, image_url: image, is_available: true }]);
+                
+                if (!error) {
+                    await loadMenu();
+                    showToast('✅ Food item added!');
+                }
+            }
+        } catch (e) {
+            showToast('❌ Error saving item');
+        }
+        closeModal();
+    }
+
+    async function deleteMenuItem(id) {
+        if (!confirm('Delete this item?')) return;
+        try {
+            const item = menu.find(i => i.id === id);
+            if (item && item.uuid) {
+                const { error } = await supabase
+                    .from('foods')
+                    .update({ is_available: false })
+                    .eq('id', item.uuid);
+                
+                if (!error) {
+                    await loadMenu();
+                    showToast('🗑️ Item deleted');
+                }
+            } else {
+                // Remove from local menu if no UUID
+                menu = menu.filter(i => i.id !== id);
+                renderMenu();
+                if (currentAdmin) renderAdminMenu();
+                showToast('🗑️ Item deleted');
+            }
+        } catch (e) {
+            showToast('❌ Error deleting');
         }
     }
 
-    // ============ GPS & MAP FUNCTIONS ============
-    
+    // ============ GPS FUNCTIONS ============
     function getCustomerGPSLocation() {
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
@@ -1119,7 +1008,6 @@
     }
 
     // ============ MAP FUNCTIONS ============
-    
     function initCustomerMap() {
         if (typeof L === 'undefined') {
             setTimeout(initCustomerMap, 500);
@@ -1147,7 +1035,6 @@
     }
 
     // ============ NAVIGATION ============
-    
     function navigateTo(page) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         const targetPage = document.getElementById(`${page}Page`);
