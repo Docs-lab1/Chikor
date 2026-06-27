@@ -69,6 +69,10 @@
         .admin-badge { position: absolute; top: 5px; right: 5px; background: #E85D04; color: white; padding: 2px 6px; border-radius: 10px; font-size: 0.6rem; z-index: 1; }
         .loading-text { text-align: center; padding: 40px 20px; color: #999; }
         .loading-text i { font-size: 2rem; display: block; margin-bottom: 10px; }
+        .db-status { text-align: center; padding: 8px; margin-bottom: 10px; border-radius: 8px; font-size: 0.8rem; }
+        .db-status.connected { background: #d4edda; color: #155724; }
+        .db-status.error { background: #f8d7da; color: #721c24; }
+        .db-status.loading { background: #fff3cd; color: #856404; }
     </style>
 </head>
 <body>
@@ -88,6 +92,7 @@
     <div class="main-content">
         <!-- HOME PAGE -->
         <div id="homePage" class="page active">
+            <div id="dbStatus" class="db-status loading">⏳ Connecting to database...</div>
             <div id="menuGrid" class="menu-grid">
                 <div class="loading-text">
                     <i class="fas fa-utensils"></i>
@@ -228,7 +233,7 @@
         <button class="nav-item" onclick="navigateTo('profile')"><i class="fas fa-user"></i><span>Profile</span></button>
     </div>
 
-</div> <!-- END of app-container -->
+</div>
 
 <!-- Modal for Add/Edit Menu Item -->
 <div id="menuModal" class="modal">
@@ -266,7 +271,7 @@
     const KASAMA_CENTER = [-10.2129, 31.1809];
     const ADMIN_PASSWORD = "admin123";
 
-    // ============ HARDCODED MENU ============
+    // ============ HARDCODED MENU (FALLBACK) ============
     const HARDCODED_MENU = [
         { id: 1, name: "Nshima with Chicken", description: "Traditional nshima + grilled chicken + rape", price: 45, image: "https://i.imgur.com/7ZqFq6R.jpg" },
         { id: 2, name: "Beef Burger", description: "Zambian beef patty with chips", price: 35, image: "https://i.imgur.com/8YqGq7S.jpg" },
@@ -279,37 +284,70 @@
         { id: 9, name: "Coca Cola", description: "Chilled soft drink", price: 12, image: "https://i.imgur.com/1XqHq0M.jpg" }
     ];
 
-    // ============ LOAD MENU ============
-    async function loadMenu() {
-        // Load hardcoded menu immediately
-        menu = HARDCODED_MENU.map(item => ({ ...item }));
-        renderMenu();
-        document.getElementById('menuItemsCount').innerHTML = menu.length;
-        
-        // Try Supabase in background
+    // ============ CHECK DATABASE CONNECTION ============
+    async function checkDatabaseConnection() {
+        const statusDiv = document.getElementById('dbStatus');
         try {
             const { data, error } = await supabase
                 .from('foods')
-                .select('*')
-                .eq('is_available', true)
-                .limit(20);
+                .select('count')
+                .limit(1);
             
-            if (!error && data && data.length > 0) {
-                menu = data.map((item, index) => ({
-                    id: index + 1,
-                    uuid: item.id,
-                    name: item.name,
-                    description: item.description || '',
-                    price: parseFloat(item.price),
-                    image: item.image_url || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)
-                }));
-                renderMenu();
-                document.getElementById('menuItemsCount').innerHTML = menu.length;
+            if (error) {
+                statusDiv.className = 'db-status error';
+                statusDiv.innerHTML = '⚠️ Database error: ' + error.message;
+                return false;
             }
+            statusDiv.className = 'db-status connected';
+            statusDiv.innerHTML = '✅ Connected to database successfully!';
+            return true;
         } catch (e) {
-            console.log('Using hardcoded menu');
+            statusDiv.className = 'db-status error';
+            statusDiv.innerHTML = '⚠️ Cannot connect: ' + e.message;
+            return false;
         }
-        if (currentAdmin) renderAdminMenu();
+    }
+
+    // ============ LOAD MENU ============
+    async function loadMenu() {
+        const statusDiv = document.getElementById('dbStatus');
+        
+        // Check database connection first
+        const connected = await checkDatabaseConnection();
+        
+        if (connected) {
+            try {
+                const { data, error } = await supabase
+                    .from('foods')
+                    .select('*')
+                    .eq('is_available', true);
+                
+                if (!error && data && data.length > 0) {
+                    menu = data.map((item, index) => ({
+                        id: index + 1,
+                        uuid: item.id,
+                        name: item.name,
+                        description: item.description || '',
+                        price: parseFloat(item.price),
+                        image: item.image_url || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)
+                    }));
+                    renderMenu();
+                    document.getElementById('menuItemsCount').innerHTML = menu.length;
+                    statusDiv.className = 'db-status connected';
+                    statusDiv.innerHTML = `✅ Loaded ${menu.length} items from database`;
+                    return;
+                }
+            } catch (e) {
+                console.log('Error loading from Supabase:', e);
+            }
+        }
+        
+        // Fallback to hardcoded menu
+        menu = HARDCODED_MENU.map(item => ({ ...item }));
+        renderMenu();
+        document.getElementById('menuItemsCount').innerHTML = menu.length;
+        statusDiv.className = 'db-status error';
+        statusDiv.innerHTML = '⚠️ Using hardcoded menu (database not available)';
     }
 
     // ============ RENDER FUNCTIONS ============
