@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Supabase SDK -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
     <title>Chikorlando Restaurant & Take Away</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; overflow-x: hidden; }
@@ -238,7 +238,7 @@
 </div>
 
 <script>
-    // ============ MENU DATA (WORKING IMAGES) ============
+    // ============ MENU DATA ============
     const defaultMenu = [
         { id: 1, name: "Nshima with Chicken", description: "Traditional nshima + grilled chicken + rape", price: 45, image: "https://i.imgur.com/7ZqFq6R.jpg" },
         { id: 2, name: "Beef Burger", description: "Zambian beef patty with chips", price: 35, image: "https://i.imgur.com/8YqGq7S.jpg" },
@@ -252,7 +252,6 @@
     ];
 
     let menu = [];
-    let db;
     let cart = [];
     let currentCustomerLocation = null;
     let customerMap, customerMarker;
@@ -264,91 +263,303 @@
     const KASAMA_CENTER = [-10.2129, 31.1809];
     const ADMIN_PASSWORD = "admin123";
 
-    // ============ DATABASE INITIALIZATION ============
-    function initDB() {
-        const request = indexedDB.open('ChikorlandoDB', 2);
-        request.onerror = (e) => {
-            console.error('Database error:', e);
-            showToast('⚠️ Database error - using default menu');
-            menu = [...defaultMenu];
-            renderMenu();
-        };
-        request.onsuccess = (e) => {
-            db = e.target.result;
-            console.log('Database ready');
-            loadMenuFromDB();
-            loadDeliveryGirls();
-            loadAvailableOrders();
-            loadMyDeliveries();
-            if (currentAdmin) loadAllOrdersAdmin();
-        };
-        request.onupgradeneeded = (e) => {
-            db = e.target.result;
-            console.log('Creating database stores...');
-            if (!db.objectStoreNames.contains('orders')) {
-                db.createObjectStore('orders', { keyPath: 'id', autoIncrement: true });
-            }
-            if (!db.objectStoreNames.contains('deliveryGirls')) {
-                const girlStore = db.createObjectStore('deliveryGirls', { keyPath: 'id', autoIncrement: true });
-                // Add default delivery girl
-                girlStore.add({ name: "Laura", pin: "1234", createdAt: new Date().toISOString() });
-            }
-            if (!db.objectStoreNames.contains('menu')) {
-                const menuStore = db.createObjectStore('menu', { keyPath: 'id', autoIncrement: true });
-                // Add default menu items
-                defaultMenu.forEach(item => {
-                    menuStore.add(item);
-                });
-            }
-        };
-    }
+    // ============ SUPABASE CONFIGURATION - YOUR KEYS ADDED ============
+    const SUPABASE_URL = 'https://auzuhfvehsptzculecvg.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1enVoZnZlaHNwdHpjdWxlY3ZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NTgxOTEsImV4cCI6MjA5ODEzNDE5MX0.BoAmGoaVGhXdaeYBfZvKsM8rC2UB7BNgCv4h7YQAr9s';
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // ============ MENU FUNCTIONS ============
-    async function loadMenuFromDB() {
-        if (!db) {
-            menu = [...defaultMenu];
-            renderMenu();
-            return;
-        }
+    // ============ DATABASE FUNCTIONS ============
+    
+    // Load menu from Supabase
+    async function loadMenu() {
         try {
-            const tx = db.transaction(['menu'], 'readonly');
-            const store = tx.objectStore('menu');
-            const savedMenu = await new Promise((resolve) => {
-                store.getAll().onsuccess = (e) => resolve(e.target.result || []);
-                store.getAll().onerror = () => resolve([]);
-            });
-            if (savedMenu.length > 0) {
-                menu = savedMenu;
+            const { data, error } = await supabase
+                .from('foods')
+                .select('*')
+                .eq('is_available', true)
+                .order('name');
+            
+            if (error) {
+                console.error('Error loading menu:', error);
+                menu = [...defaultMenu];
+                renderMenu();
+                return;
+            }
+            
+            if (data && data.length > 0) {
+                menu = data.map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    description: item.description,
+                    price: parseFloat(item.price),
+                    image: item.image_url
+                }));
             } else {
                 menu = [...defaultMenu];
-                await saveMenuToDB();
-                console.log('Default menu saved to database');
             }
+            
+            renderMenu();
+            if (currentAdmin) renderAdminMenu();
+            document.getElementById('menuItemsCount').innerHTML = menu.length;
         } catch (e) {
-            console.error('Error loading menu:', e);
+            console.error('Error:', e);
             menu = [...defaultMenu];
+            renderMenu();
         }
-        renderMenu();
-        if (currentAdmin) renderAdminMenu();
-        const menuCountElem = document.getElementById('menuItemsCount');
-        if (menuCountElem) menuCountElem.innerHTML = menu.length;
     }
 
-    async function saveMenuToDB() {
-        if (!db) return;
+    // Save order
+    async function saveOrder(orderData) {
         try {
-            const tx = db.transaction(['menu'], 'readwrite');
-            const store = tx.objectStore('menu');
-            store.clear();
-            menu.forEach(item => {
-                store.add(item);
-            });
+            const subtotal = orderData.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+            const deliveryFee = 10;
+            const total = subtotal + deliveryFee;
+            
+            const { data, error } = await supabase
+                .from('orders')
+                .insert([{
+                    customer_name: orderData.customer_name || orderData.phone,
+                    customer_phone: orderData.phone,
+                    delivery_address: orderData.address,
+                    landmark: orderData.landmark || '',
+                    items: orderData.items,
+                    subtotal: subtotal,
+                    delivery_fee: deliveryFee,
+                    total: total,
+                    payment_method: orderData.paymentMethod,
+                    status: 'pending',
+                    customer_location_lat: orderData.customerLocation?.lat || null,
+                    customer_location_lng: orderData.customerLocation?.lng || null
+                }])
+                .select();
+            
+            if (error) {
+                console.error('Error saving order:', error);
+                showToast('❌ Failed to place order');
+                return null;
+            }
+            return data[0];
         } catch (e) {
-            console.error('Error saving menu:', e);
+            console.error('Error:', e);
+            showToast('❌ Error placing order');
+            return null;
+        }
+    }
+
+    // Get all orders
+    async function getAllOrders() {
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .order('created_at', { ascending: false });
+            
+            if (error) return [];
+            return data;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // Get orders by customer phone
+    async function getCustomerOrders(phone) {
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('customer_phone', phone)
+                .order('created_at', { ascending: false });
+            
+            if (error) return [];
+            return data;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // Update order status
+    async function updateOrderStatus(orderId, status, deliveryGirlName = null, deliveryGirlId = null) {
+        try {
+            const updateData = { status: status, updated_at: new Date() };
+            if (deliveryGirlName) updateData.delivery_girl_name = deliveryGirlName;
+            if (deliveryGirlId) updateData.delivery_girl_id = deliveryGirlId;
+            
+            const { error } = await supabase
+                .from('orders')
+                .update(updateData)
+                .eq('id', orderId);
+            
+            return !error;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Get available orders
+    async function getAvailableOrders() {
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('status', 'pending')
+                .order('created_at', { ascending: true });
+            
+            if (error) return [];
+            return data;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // Get delivery girl's orders
+    async function getDeliveryGirlOrders(deliveryGirlName) {
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('delivery_girl_name', deliveryGirlName)
+                .in('status', ['accepted', 'delivering'])
+                .order('created_at', { ascending: false });
+            
+            if (error) return [];
+            return data;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // Verify delivery girl
+    async function verifyDeliveryGirlSupabase(name, pin) {
+        try {
+            const { data, error } = await supabase
+                .from('delivery_girls')
+                .select('*')
+                .eq('name', name)
+                .eq('pin', pin)
+                .eq('is_active', true);
+            
+            if (error || !data || data.length === 0) return null;
+            return data[0];
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Get all delivery girls
+    async function getAllDeliveryGirls() {
+        try {
+            const { data, error } = await supabase
+                .from('delivery_girls')
+                .select('*')
+                .eq('is_active', true);
+            
+            if (error) return [];
+            return data;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // Add delivery girl
+    async function addDeliveryGirlToDB(name, pin, phone) {
+        try {
+            const { error } = await supabase
+                .from('delivery_girls')
+                .insert([{
+                    name: name,
+                    pin: pin,
+                    phone: phone || '0970000000',
+                    vehicle_number: 'MOTO-001'
+                }]);
+            return !error;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Delete delivery girl
+    async function deleteDeliveryGirlFromDB(id) {
+        try {
+            const { error } = await supabase
+                .from('delivery_girls')
+                .update({ is_active: false })
+                .eq('id', id);
+            return !error;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Add food item
+    async function addFoodItemToDB(name, description, price, imageUrl) {
+        try {
+            const { error } = await supabase
+                .from('foods')
+                .insert([{
+                    name: name,
+                    description: description,
+                    price: price,
+                    image_url: imageUrl || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(name),
+                    is_available: true
+                }]);
+            
+            if (!error) {
+                await loadMenu();
+                showToast('✅ Food item added!');
+                return true;
+            }
+            return false;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Update food item
+    async function updateFoodItemInDB(id, name, description, price, imageUrl) {
+        try {
+            const { error } = await supabase
+                .from('foods')
+                .update({
+                    name: name,
+                    description: description,
+                    price: price,
+                    image_url: imageUrl
+                })
+                .eq('id', id);
+            
+            if (!error) {
+                await loadMenu();
+                showToast('✅ Food item updated!');
+                return true;
+            }
+            return false;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Delete food item
+    async function deleteFoodItemFromDB(id) {
+        try {
+            const { error } = await supabase
+                .from('foods')
+                .update({ is_available: false })
+                .eq('id', id);
+            
+            if (!error) {
+                await loadMenu();
+                showToast('🗑️ Food item deleted!');
+                return true;
+            }
+            return false;
+        } catch (e) {
+            return false;
         }
     }
 
     // ============ RENDER FUNCTIONS ============
+    
     function renderMenu() {
         const container = document.getElementById('menuGrid');
         if (!container) return;
@@ -363,7 +574,7 @@
                     <h3>${escapeHtml(item.name)}</h3>
                     <p>${escapeHtml(item.description || '')}</p>
                     <div class="price">ZMW ${item.price}</div>
-                    <button class="add-btn" onclick="addToCart(${item.id})">+ Add to Cart</button>
+                    <button class="add-btn" onclick="addToCart('${item.id}')">+ Add to Cart</button>
                 </div>
             </div>
         `).join('');
@@ -378,15 +589,15 @@
         }
         container.innerHTML = menu.map(item => `
             <div class="menu-card admin-mode" style="margin-bottom: 12px; position:relative;">
-                <div class="admin-badge">ID: ${item.id}</div>
+                <div class="admin-badge">ID: ${item.id.substring(0, 8)}</div>
                 <img src="${item.image || 'https://via.placeholder.com/400x300?text=' + encodeURIComponent(item.name)}" class="menu-img" alt="${item.name}" style="height: 100px;" onerror="this.src='https://via.placeholder.com/400x300?text=${encodeURIComponent(item.name)}'">
                 <div class="menu-info">
                     <h3>${escapeHtml(item.name)}</h3>
                     <p>${escapeHtml(item.description || '')}</p>
                     <div class="price">ZMW ${item.price}</div>
                     <div style="display: flex; gap: 8px;">
-                        <button class="edit-btn" onclick="showEditMenuItemModal(${item.id})">✏️ Edit</button>
-                        <button class="delete-btn" onclick="deleteMenuItem(${item.id})">🗑️ Delete</button>
+                        <button class="edit-btn" onclick="showEditMenuItemModal('${item.id}')">✏️ Edit</button>
+                        <button class="delete-btn" onclick="deleteMenuItem('${item.id}')">🗑️ Delete</button>
                     </div>
                 </div>
             </div>
@@ -401,42 +612,6 @@
             if (m === '>') return '&gt;';
             return m;
         });
-    }
-
-    // ============ MENU CRUD ============
-    async function addMenuItem(item) {
-        const newId = menu.length > 0 ? Math.max(...menu.map(i => i.id)) + 1 : 1;
-        const newItem = { ...item, id: newId };
-        menu.push(newItem);
-        await saveMenuToDB();
-        renderMenu();
-        if (currentAdmin) renderAdminMenu();
-        showToast(`✅ Added: ${item.name}`);
-        const menuCountElem = document.getElementById('menuItemsCount');
-        if (menuCountElem) menuCountElem.innerHTML = menu.length;
-    }
-
-    async function updateMenuItem(id, updatedItem) {
-        const index = menu.findIndex(i => i.id === id);
-        if (index !== -1) {
-            menu[index] = { ...menu[index], ...updatedItem, id: id };
-            await saveMenuToDB();
-            renderMenu();
-            if (currentAdmin) renderAdminMenu();
-            showToast(`✅ Updated: ${updatedItem.name}`);
-        }
-    }
-
-    async function deleteMenuItem(id) {
-        if (confirm('Are you sure you want to delete this item?')) {
-            menu = menu.filter(i => i.id !== id);
-            await saveMenuToDB();
-            renderMenu();
-            if (currentAdmin) renderAdminMenu();
-            showToast('🗑️ Item deleted');
-            const menuCountElem = document.getElementById('menuItemsCount');
-            if (menuCountElem) menuCountElem.innerHTML = menu.length;
-        }
     }
 
     // ============ MODAL FUNCTIONS ============
@@ -484,41 +659,37 @@
         }
         
         if (editId) {
-            await updateMenuItem(parseInt(editId), { name, description, price, image });
+            await updateFoodItemInDB(editId, name, description, price, image);
         } else {
-            await addMenuItem({ name, description, price, image });
+            await addFoodItemToDB(name, description, price, image);
         }
-        
         closeModal();
     }
 
-    // ============ DELIVERY GIRL FUNCTIONS ============
-    async function loadDeliveryGirls() {
-        if (!db) return;
-        try {
-            const tx = db.transaction(['deliveryGirls'], 'readonly');
-            const store = tx.objectStore('deliveryGirls');
-            const girls = await new Promise((resolve) => {
-                store.getAll().onsuccess = (e) => resolve(e.target.result || []);
-            });
-            
-            const container = document.getElementById('deliveryGirlsList');
-            if (container && currentAdmin) {
-                if (!girls || girls.length === 0) {
-                    container.innerHTML = '<p style="color:#999">No delivery girls added yet</p>';
-                } else {
-                    container.innerHTML = girls.map(girl => `
-                        <div class="delivery-girl-card">
-                            <div><strong>${escapeHtml(girl.name)}</strong> (PIN: ${girl.pin})</div>
-                            <button class="delete-btn" onclick="deleteDeliveryGirl(${girl.id})">Delete</button>
-                        </div>
-                    `).join('');
-                }
-            }
-            return girls;
-        } catch (e) {
-            return [];
+    async function deleteMenuItem(id) {
+        if (confirm('Delete this item?')) {
+            await deleteFoodItemFromDB(id);
         }
+    }
+
+    // ============ DELIVERY GIRL FUNCTIONS ============
+    
+    async function loadDeliveryGirls() {
+        const girls = await getAllDeliveryGirls();
+        const container = document.getElementById('deliveryGirlsList');
+        if (container && currentAdmin) {
+            if (girls.length === 0) {
+                container.innerHTML = '<p style="color:#999">No delivery girls added yet</p>';
+            } else {
+                container.innerHTML = girls.map(girl => `
+                    <div class="delivery-girl-card">
+                        <div><strong>${escapeHtml(girl.name)}</strong> (PIN: ${girl.pin})<br><small>${girl.phone}</small></div>
+                        <button class="delete-btn" onclick="deleteDeliveryGirl('${girl.id}')">Delete</button>
+                    </div>
+                `).join('');
+            }
+        }
+        return girls;
     }
 
     async function addDeliveryGirl() {
@@ -528,112 +699,43 @@
             showToast('❌ Enter name and PIN');
             return;
         }
-        try {
-            const tx = db.transaction(['deliveryGirls'], 'readwrite');
-            const store = tx.objectStore('deliveryGirls');
-            store.add({ name: name, pin: pin, createdAt: new Date().toISOString() });
+        const success = await addDeliveryGirlToDB(name, pin);
+        if (success) {
             showToast(`✅ Delivery girl ${name} added! PIN: ${pin}`);
             document.getElementById('newGirlName').value = '';
             document.getElementById('newGirlPin').value = '';
             loadDeliveryGirls();
-        } catch (e) {
+        } else {
             showToast('❌ Failed to add delivery girl');
         }
     }
 
     async function deleteDeliveryGirl(id) {
         if (confirm('Delete this delivery girl?')) {
-            try {
-                const tx = db.transaction(['deliveryGirls'], 'readwrite');
-                const store = tx.objectStore('deliveryGirls');
-                store.delete(id);
-                showToast('Delivery girl deleted');
+            const success = await deleteDeliveryGirlFromDB(id);
+            if (success) {
+                showToast('✅ Delivery girl deleted');
                 loadDeliveryGirls();
-            } catch (e) {
-                showToast('❌ Failed to delete');
             }
-        }
-    }
-
-    async function verifyDeliveryGirl(name, pin) {
-        try {
-            const tx = db.transaction(['deliveryGirls'], 'readonly');
-            const store = tx.objectStore('deliveryGirls');
-            const girls = await new Promise((resolve) => {
-                store.getAll().onsuccess = (e) => resolve(e.target.result || []);
-            });
-            return girls.find(g => g.name === name && g.pin === pin);
-        } catch (e) {
-            return null;
         }
     }
 
     // ============ ORDER FUNCTIONS ============
-    function saveOrder(order) {
-        return new Promise((resolve, reject) => {
-            try {
-                const tx = db.transaction(['orders'], 'readwrite');
-                const store = tx.objectStore('orders');
-                const req = store.add(order);
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            } catch (e) {
-                reject(e);
-            }
-        });
-    }
-
-    function getAllOrders() {
-        return new Promise((resolve) => {
-            if (!db) { resolve([]); return; }
-            try {
-                const tx = db.transaction(['orders'], 'readonly');
-                const store = tx.objectStore('orders');
-                store.getAll().onsuccess = (e) => resolve(e.target.result || []);
-                store.getAll().onerror = () => resolve([]);
-            } catch (e) {
-                resolve([]);
-            }
-        });
-    }
-
-    async function updateOrderStatus(orderId, status, deliveryGirl = null) {
-        try {
-            const orders = await getAllOrders();
-            const order = orders.find(o => o.id === orderId);
-            if (order) {
-                order.status = status;
-                if (deliveryGirl) order.deliveryGirl = deliveryGirl;
-                order.lastUpdated = new Date().toISOString();
-                const tx = db.transaction(['orders'], 'readwrite');
-                const store = tx.objectStore('orders');
-                store.put(order);
-                if (currentAdmin) loadAllOrdersAdmin();
-                return true;
-            }
-            return false;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // ============ LOAD ORDERS ============
+    
     async function loadAvailableOrders() {
-        const orders = await getAllOrders();
-        const pending = orders.filter(o => o.status === 'pending');
+        const orders = await getAvailableOrders();
         const container = document.getElementById('availableOrdersList');
         if (container && currentDeliveryGirl) {
-            if (pending.length === 0) {
+            if (orders.length === 0) {
                 container.innerHTML = '<p style="color:#999; text-align:center">No pending orders</p>';
             } else {
-                container.innerHTML = pending.map(order => `
+                container.innerHTML = orders.map(order => `
                     <div class="order-card">
-                        <div><strong>Order #${order.id}</strong></div>
-                        <div>📍 ${(order.address || 'N/A').substring(0, 40)}...</div>
-                        <div>📞 ${order.phone}</div>
+                        <div><strong>Order ${order.order_number || order.id}</strong></div>
+                        <div>📍 ${(order.delivery_address || 'N/A').substring(0, 40)}...</div>
+                        <div>📞 ${order.customer_phone}</div>
                         <div>💰 ZMW ${order.total}</div>
-                        <div>🍽️ ${order.items ? order.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : ''}</div>
-                        <button class="btn-primary" onclick="acceptOrder(${order.id})">✓ Accept Delivery</button>
+                        <button class="btn-primary" onclick="acceptOrder('${order.id}')">✓ Accept Delivery</button>
                     </div>
                 `).join('');
             }
@@ -642,57 +744,62 @@
 
     async function loadMyDeliveries() {
         if (!currentDeliveryGirl) return;
-        const orders = await getAllOrders();
-        const myOrders = orders.filter(o => o.deliveryGirl === currentDeliveryGirl.name && o.status !== 'delivered');
+        const orders = await getDeliveryGirlOrders(currentDeliveryGirl.name);
         const container = document.getElementById('myDeliveriesList');
         if (container) {
-            if (myOrders.length === 0) {
+            if (orders.length === 0) {
                 container.innerHTML = '<p style="color:#999; text-align:center">No active deliveries</p>';
             } else {
-                container.innerHTML = myOrders.map(order => `
+                container.innerHTML = orders.map(order => `
                     <div class="order-card">
-                        <div><strong>Order #${order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
-                        <div>📍 ${(order.address || 'N/A').substring(0, 40)}</div>
-                        <div>📞 ${order.phone}</div>
+                        <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                        <div>📍 ${(order.delivery_address || 'N/A').substring(0, 40)}</div>
+                        <div>📞 ${order.customer_phone}</div>
                         <div>💰 ZMW ${order.total}</div>
                         ${order.status === 'accepted' ? 
-                            `<button class="btn-primary" onclick="startDelivery(${order.id})">🚚 Start Delivery</button>` : 
+                            `<button class="btn-primary" onclick="startDelivery('${order.id}')">🚚 Start Delivery</button>` : 
                             order.status === 'delivering' ?
-                            `<button class="btn-primary" onclick="completeDelivery(${order.id})">✅ Mark Delivered</button>` : ''}
+                            `<button class="btn-primary" onclick="completeDelivery('${order.id}')">✅ Mark Delivered</button>` : ''}
                     </div>
                 `).join('');
             }
         }
     }
 
-    // ============ ORDER ACTIONS ============
     async function acceptOrder(orderId) {
-        await updateOrderStatus(orderId, 'accepted', currentDeliveryGirl.name);
-        showToast(`✅ Order #${orderId} accepted!`);
-        loadAvailableOrders();
-        loadMyDeliveries();
+        const success = await updateOrderStatus(orderId, 'accepted', currentDeliveryGirl.name, currentDeliveryGirl.id);
+        if (success) {
+            showToast('✅ Order accepted!');
+            loadAvailableOrders();
+            loadMyDeliveries();
+        }
     }
 
     async function startDelivery(orderId) {
-        await updateOrderStatus(orderId, 'delivering');
-        showToast(`🚚 Delivery started for order #${orderId}`);
-        loadMyDeliveries();
-        const orders = await getAllOrders();
-        const order = orders.find(o => o.id === orderId);
-        if (order && order.address) {
-            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address + ', Kasama, Zambia')}`, '_blank');
+        const success = await updateOrderStatus(orderId, 'delivering', currentDeliveryGirl.name, currentDeliveryGirl.id);
+        if (success) {
+            showToast('🚚 Delivery started!');
+            loadMyDeliveries();
+            const orders = await getAllOrders();
+            const order = orders.find(o => o.id === orderId);
+            if (order && order.delivery_address) {
+                window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address + ', Kasama, Zambia')}`, '_blank');
+            }
         }
     }
 
     async function completeDelivery(orderId) {
-        await updateOrderStatus(orderId, 'delivered');
-        showToast(`🎉 Order #${orderId} delivered!`);
-        loadAvailableOrders();
-        loadMyDeliveries();
-        if (currentAdmin) loadAllOrdersAdmin();
+        const success = await updateOrderStatus(orderId, 'delivered', currentDeliveryGirl.name, currentDeliveryGirl.id);
+        if (success) {
+            showToast('🎉 Order delivered!');
+            loadAvailableOrders();
+            loadMyDeliveries();
+            if (currentAdmin) loadAllOrdersAdmin();
+        }
     }
 
     // ============ ADMIN FUNCTIONS ============
+    
     function loginAdmin() {
         const password = document.getElementById('adminPassword').value;
         if (password === ADMIN_PASSWORD) {
@@ -719,15 +826,15 @@
             if (orders.length === 0) {
                 container.innerHTML = '<p style="color:#999">No orders yet</p>';
             } else {
-                container.innerHTML = orders.sort((a,b) => new Date(b.date) - new Date(a.date)).map(order => `
+                container.innerHTML = orders.map(order => `
                     <div class="order-card">
-                        <div><strong>Order #${order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
-                        <div>📞 ${order.phone}</div>
-                        <div>📍 ${(order.address || 'N/A').substring(0, 50)}</div>
+                        <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                        <div>📞 ${order.customer_phone}</div>
+                        <div>📍 ${(order.delivery_address || 'N/A').substring(0, 50)}</div>
                         <div>🍽️ ${order.items ? order.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : ''}</div>
-                        <div>💰 ZMW ${order.total} | ${order.paymentMethod}</div>
-                        <div>📅 ${new Date(order.date).toLocaleString()}</div>
-                        ${order.deliveryGirl ? `<div>👧 Delivery: ${order.deliveryGirl}</div>` : ''}
+                        <div>💰 ZMW ${order.total} | ${order.payment_method}</div>
+                        <div>📅 ${new Date(order.created_at).toLocaleString()}</div>
+                        ${order.delivery_girl_name ? `<div>👧 Delivery: ${order.delivery_girl_name}</div>` : ''}
                     </div>
                 `).join('');
             }
@@ -755,7 +862,7 @@
         
         if (currentFilter !== 'all') {
             filteredOrders = orders.filter(o => {
-                const orderDate = new Date(o.date);
+                const orderDate = new Date(o.created_at);
                 return orderDate.getMonth() + 1 === currentFilter && orderDate.getFullYear() === now.getFullYear();
             });
         }
@@ -773,10 +880,10 @@
                     </div>
                     ${filteredOrders.map(order => `
                         <div class="order-card">
-                            <div><strong>Order #${order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
-                            <div>📞 ${order.phone}</div>
+                            <div><strong>Order ${order.order_number || order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
+                            <div>📞 ${order.customer_phone}</div>
                             <div>💰 ZMW ${order.total}</div>
-                            <div>📅 ${new Date(order.date).toLocaleDateString()}</div>
+                            <div>📅 ${new Date(order.created_at).toLocaleDateString()}</div>
                         </div>
                     `).join('')}
                 `;
@@ -785,6 +892,119 @@
     }
 
     // ============ CUSTOMER FUNCTIONS ============
+    
+    function addToCart(id) {
+        const item = menu.find(i => i.id === id);
+        if (!item) return;
+        const existing = cart.find(i => i.id === id);
+        if (existing) {
+            existing.quantity++;
+        } else {
+            cart.push({ ...item, quantity: 1 });
+        }
+        renderCart();
+        showToast(`✅ ${item.name} added to cart`);
+    }
+
+    function renderCart() {
+        const container = document.getElementById('cartItemsList');
+        const totalElem = document.getElementById('cartTotal');
+        if (!container) return;
+        if (cart.length === 0) {
+            container.innerHTML = '<p style="text-align:center; color:#999;">Cart is empty</p>';
+            totalElem.innerHTML = 'Total: ZMW 0.00';
+            return;
+        }
+        let total = 0;
+        container.innerHTML = cart.map(item => {
+            const itemTotal = item.price * item.quantity;
+            total += itemTotal;
+            return `
+                <div class="cart-item">
+                    <div><b>${escapeHtml(item.name)}</b> x${item.quantity}<br><small>ZMW ${item.price}</small></div>
+                    <div>ZMW ${itemTotal} <button onclick="removeFromCart('${item.id}')" style="background:#ff4444; border:none; color:white; padding:4px 10px; border-radius:20px; margin-left:8px">×</button></div>
+                </div>
+            `;
+        }).join('');
+        totalElem.innerHTML = `Total: ZMW ${total.toFixed(2)}`;
+    }
+
+    function removeFromCart(id) {
+        const index = cart.findIndex(i => i.id === id);
+        if (index !== -1) {
+            if (cart[index].quantity > 1) {
+                cart[index].quantity--;
+            } else {
+                cart.splice(index, 1);
+            }
+            renderCart();
+        }
+    }
+
+    async function placeOrder() {
+        if (cart.length === 0) {
+            showToast('❌ Cart is empty');
+            return;
+        }
+        const phone = document.getElementById('phone').value;
+        const address = document.getElementById('address').value;
+        if (!phone || phone.length < 9) {
+            showToast('❌ Enter valid phone number');
+            return;
+        }
+        if (!address) {
+            showToast('❌ Enter address or use GPS');
+            return;
+        }
+        
+        const payment = document.querySelector('input[name="payment"]:checked').value;
+        const orderData = {
+            customer_name: phone,
+            phone: phone,
+            address: address,
+            landmark: document.getElementById('landmark').value,
+            items: JSON.parse(JSON.stringify(cart)),
+            paymentMethod: payment,
+            customerLocation: currentCustomerLocation
+        };
+        
+        const order = await saveOrder(orderData);
+        if (order) {
+            showToast('✅ Order placed!');
+            cart = [];
+            renderCart();
+            document.getElementById('phone').value = '';
+            document.getElementById('address').value = '';
+            navigateTo('track');
+            
+            document.getElementById('trackingStatus').innerHTML = `
+                <div class="order-card">
+                    <h4>✅ Order Confirmed!</h4>
+                    <p>Waiting for a delivery girl...</p>
+                    <p>Order: ${order.order_number || order.id}</p>
+                </div>
+            `;
+            
+            const trackInterval = setInterval(async () => {
+                const orders = await getCustomerOrders(phone);
+                const updated = orders.find(o => o.id === order.id);
+                if (updated) {
+                    document.getElementById('trackingStatus').innerHTML = `
+                        <div class="order-card">
+                            <h4>🛵 Order ${updated.order_number || updated.id}</h4>
+                            <p>Status: <span class="status-badge status-${updated.status}">${updated.status.toUpperCase()}</span></p>
+                            ${updated.delivery_girl_name ? `<p>👧 Delivery Girl: ${updated.delivery_girl_name}</p>` : ''}
+                            ${updated.status === 'delivered' ? '<p>🎉 Delivered! Enjoy!</p>' : ''}
+                        </div>
+                    `;
+                    if (updated.status === 'delivered') clearInterval(trackInterval);
+                }
+            }, 3000);
+        }
+    }
+
+    // ============ GPS & MAP FUNCTIONS ============
+    
     function getCustomerGPSLocation() {
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
@@ -824,12 +1044,12 @@
     async function loginDeliveryGirl() {
         const name = document.getElementById('deliveryName').value;
         const pin = document.getElementById('deliveryPin').value;
-        const valid = await verifyDeliveryGirl(name, pin);
-        if (valid) {
-            currentDeliveryGirl = { name: name, location: null, id: valid.id };
+        const girl = await verifyDeliveryGirlSupabase(name, pin);
+        if (girl) {
+            currentDeliveryGirl = { name: girl.name, location: null, id: girl.id };
             document.getElementById('deliveryLogin').style.display = 'none';
             document.getElementById('deliveryDashboard').style.display = 'block';
-            document.getElementById('deliveryGirlName').innerText = name;
+            document.getElementById('deliveryGirlName').innerText = girl.name;
             initDeliveryMap();
             updateDeliveryLocation();
             loadAvailableOrders();
@@ -840,146 +1060,14 @@
                     loadMyDeliveries();
                 }
             }, 10000);
-            showToast(`✅ Welcome ${name}!`);
+            showToast(`✅ Welcome ${girl.name}!`);
         } else {
             showToast('❌ Invalid credentials. Try Name: Laura, PIN: 1234');
         }
     }
 
-    // ============ CART FUNCTIONS ============
-    function addToCart(id) {
-        const item = menu.find(i => i.id === id);
-        if (!item) return;
-        const existing = cart.find(i => i.id === id);
-        if (existing) {
-            existing.quantity++;
-        } else {
-            cart.push({ ...item, quantity: 1 });
-        }
-        renderCart();
-        showToast(`✅ ${item.name} added to cart`);
-    }
-
-    function renderCart() {
-        const container = document.getElementById('cartItemsList');
-        const totalElem = document.getElementById('cartTotal');
-        if (!container) return;
-        if (cart.length === 0) {
-            container.innerHTML = '<p style="text-align:center; color:#999;">Cart is empty</p>';
-            totalElem.innerHTML = 'Total: ZMW 0.00';
-            return;
-        }
-        let total = 0;
-        container.innerHTML = cart.map(item => {
-            const itemTotal = item.price * item.quantity;
-            total += itemTotal;
-            return `
-                <div class="cart-item">
-                    <div><b>${escapeHtml(item.name)}</b> x${item.quantity}<br><small>ZMW ${item.price}</small></div>
-                    <div>ZMW ${itemTotal} <button onclick="removeFromCart(${item.id})" style="background:#ff4444; border:none; color:white; padding:4px 10px; border-radius:20px; margin-left:8px">×</button></div>
-                </div>
-            `;
-        }).join('');
-        totalElem.innerHTML = `Total: ZMW ${total.toFixed(2)}`;
-    }
-
-    function removeFromCart(id) {
-        const index = cart.findIndex(i => i.id === id);
-        if (index !== -1) {
-            if (cart[index].quantity > 1) {
-                cart[index].quantity--;
-            } else {
-                cart.splice(index, 1);
-            }
-            renderCart();
-        }
-    }
-
-    async function placeOrder() {
-        if (cart.length === 0) {
-            showToast('❌ Cart is empty');
-            return;
-        }
-        const phone = document.getElementById('phone').value;
-        const address = document.getElementById('address').value;
-        if (!phone || phone.length < 9) {
-            showToast('❌ Enter valid phone number (e.g., 0971234567)');
-            return;
-        }
-        if (!address) {
-            showToast('❌ Enter address or use GPS');
-            return;
-        }
-        
-        const payment = document.querySelector('input[name="payment"]:checked').value;
-        const total = cart.reduce((s, i) => s + (i.price * i.quantity), 0);
-        
-        const order = {
-            phone: phone,
-            address: address,
-            landmark: document.getElementById('landmark').value,
-            items: JSON.parse(JSON.stringify(cart)),
-            total: total,
-            paymentMethod: payment,
-            status: 'pending',
-            date: new Date().toISOString(),
-            customerLocation: currentCustomerLocation
-        };
-        
-        try {
-            const orderId = await saveOrder(order);
-            showToast(`✅ Order #${orderId} placed!`);
-            
-            cart = [];
-            renderCart();
-            document.getElementById('phone').value = '';
-            document.getElementById('address').value = '';
-            loadAvailableOrders();
-            navigateTo('track');
-            
-            document.getElementById('trackingStatus').innerHTML = `
-                <div class="order-card">
-                    <h4>✅ Order #${orderId} Confirmed!</h4>
-                    <p>Waiting for a delivery girl to accept your order...</p>
-                </div>
-            `;
-            
-            const trackInterval = setInterval(async () => {
-                const orders = await getAllOrders();
-                const updated = orders.find(o => o.id === orderId);
-                if (updated) {
-                    document.getElementById('trackingStatus').innerHTML = `
-                        <div class="order-card">
-                            <h4>🛵 Order #${orderId}</h4>
-                            <p>Status: <span class="status-badge status-${updated.status}">${updated.status.toUpperCase()}</span></p>
-                            ${updated.deliveryGirl ? `<p>👧 Delivery Girl: ${updated.deliveryGirl}</p>` : ''}
-                            ${updated.status === 'delivered' ? '<p>🎉 Delivered! Enjoy your meal!</p>' : ''}
-                        </div>
-                    `;
-                    if (updated.status === 'delivered') clearInterval(trackInterval);
-                }
-                const myOrders = orders.filter(o => o.phone === phone);
-                const historyDiv = document.getElementById('orderHistoryList');
-                if (historyDiv) {
-                    if (myOrders.length === 0) {
-                        historyDiv.innerHTML = '<p style="color:#999">No orders yet</p>';
-                    } else {
-                        historyDiv.innerHTML = myOrders.map(order => `
-                            <div class="order-card">
-                                <div><strong>Order #${order.id}</strong> <span class="status-badge status-${order.status}">${order.status}</span></div>
-                                <div>${new Date(order.date).toLocaleString()} | ZMW ${order.total}</div>
-                                <div>${order.items ? order.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : ''}</div>
-                            </div>
-                        `).join('');
-                    }
-                }
-            }, 3000);
-        } catch (e) {
-            showToast('❌ Failed to place order');
-        }
-    }
-
     // ============ MAP FUNCTIONS ============
+    
     function initCustomerMap() {
         if (typeof L === 'undefined') {
             setTimeout(initCustomerMap, 500);
@@ -1007,6 +1095,7 @@
     }
 
     // ============ NAVIGATION ============
+    
     function navigateTo(page) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         const targetPage = document.getElementById(`${page}Page`);
@@ -1025,10 +1114,10 @@
         if (page === 'admin' && currentAdmin) {
             loadAllOrdersAdmin();
             renderAdminMenu();
+            loadDeliveryGirls();
         }
     }
 
-    // ============ TOAST NOTIFICATION ============
     function showToast(msg) {
         const toast = document.createElement('div');
         toast.className = 'notification';
@@ -1038,8 +1127,22 @@
     }
 
     // ============ INITIALIZE ============
-    initDB();
-    initCustomerMap();
+    async function init() {
+        await loadMenu();
+        initCustomerMap();
+        
+        setInterval(async () => {
+            if (currentDeliveryGirl) {
+                await loadAvailableOrders();
+                await loadMyDeliveries();
+            }
+            if (currentAdmin) {
+                await loadAllOrdersAdmin();
+            }
+        }, 15000);
+    }
+
+    init();
 </script>
 </body>
 </html>
